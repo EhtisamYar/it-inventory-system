@@ -1,24 +1,20 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  FaPlus, FaTrash, FaSearch, FaDatabase, FaEye, FaEdit, FaColumns, FaUndo,
-  FaSave, FaTimes   // <-- added for modal buttons
+import {
+  FaPlus, FaTrash, FaSearch, FaEye, FaEdit, FaColumns, FaTimes, FaInbox,
+  FaChevronDown, FaLayerGroup, FaFileExport
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import axios from 'axios';
-import ExportDropdown from './ExportDropdown';
-
-const API_URL = 'http://localhost:5000';
 
 const formatPKR = (amount) => {
-  if (!amount) return 'Rs. 0';
-  return new Intl.NumberFormat('ur-PK', {
+  if (!amount) return 'Rs 0';
+  return new Intl.NumberFormat('en-PK', {
     style: 'currency',
     currency: 'PKR',
     minimumFractionDigits: 0,
     maximumFractionDigits: 0,
-  }).format(amount);
+  }).format(amount).replace('PKR', 'Rs');
 };
 
 const formatDate = (dateString) => {
@@ -26,7 +22,6 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString('en-GB');
 };
 
-// ---------- Column definitions (all possible columns) ----------
 const COLUMN_DEFS = {
   category: { label: 'Category', always: false },
   brand: { label: 'Brand', always: false },
@@ -48,25 +43,33 @@ const COLUMN_DEFS = {
   dateOfIssuance: { label: 'Date of Issuance', always: false },
 };
 
-// All possible column keys (for the Manage Columns modal)
-const ALL_COLUMNS = Object.keys(COLUMN_DEFS).map(key => ({
-  key,
-  label: COLUMN_DEFS[key].label
-}));
 
-// Default preset (all columns visible)
+
+const CATEGORY_COLUMN_PRESETS = {
+  'Printers': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
+  'Copiers': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
+  'Scanners': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
+};
+
 const DEFAULT_VISIBLE = Object.keys(COLUMN_DEFS).reduce((acc, key) => {
   acc[key] = true;
   return acc;
 }, {});
 
-// Optional presets for specific categories (used only when no saved preference exists)
-const CATEGORY_COLUMN_PRESETS = {
-  'Printers': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
-  'Copiers': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
-  'Scanners': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
-  // Add your custom presets here if needed
+const ACCENT = '#4F46E5';
+const INK = '#14161F';
+const CATEGORY_TINTS = ['#4F46E5', '#0D9488', '#B45309', '#BE185D', '#0369A1', '#4D7C0F', '#7C3AED', '#C2410C'];
+const getTint = (index) => CATEGORY_TINTS[index % CATEGORY_TINTS.length];
+
+const CONDITION_STYLES = {
+  New: { bg: '#ECFDF5', text: '#047857', dot: '#10B981' },
+  Refurbed: { bg: '#EFF6FF', text: '#1D4ED8', dot: '#3B82F6' },
+  Damaged: { bg: '#FEF2F2', text: '#B91C1C', dot: '#EF4444' },
+  Used: { bg: '#F9FAFB', text: '#4B5563', dot: '#9CA3AF' },
+  Condemned: { bg: '#FEF2F2', text: '#7F1D1D', dot: '#7F1D1D' },
 };
+
+const CONDITIONS = ['New', 'Refurbed', 'Damaged', 'Used', 'Condemned'];
 
 const InventoryList = ({
   items,
@@ -81,43 +84,19 @@ const InventoryList = ({
   isMaster,
   isItInventory,
   types,
-  onRefresh,
-  categoryId,      // <-- new prop: numeric category ID (for DB storage)
-  categoryName,    // still used for localStorage fallback
 }) => {
   const [activeTab, setActiveTab] = useState(null);
   const [conditionFilter, setConditionFilter] = useState('');
   const [showColumnDropdown, setShowColumnDropdown] = useState(false);
-  const dropdownRef = useRef(null);
-
-  // ---------- Manage Columns State ----------
-  const [showManageColumns, setShowManageColumns] = useState(false);
-  const [editingColumns, setEditingColumns] = useState([]);
-  const [loadingColumns, setLoadingColumns] = useState(false);
-
-  // ---------- Return Modal State ----------
-  const [showReturnModal, setShowReturnModal] = useState(false);
-  const [returnItem, setReturnItem] = useState(null);
-  const [returnData, setReturnData] = useState({
-    email: '',
-    backup_done: false,
-    remarks: ''
-  });
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
+  const columnRef = useRef(null);
+  const exportRef = useRef(null);
 
   const isMasterInventory = isMaster || title === 'Master Inventory' || title === 'IT Inventory (Unassigned)';
   const isTrueMaster = isMaster && !isItInventory;
 
-  // ---------- Column Visibility (DB + localStorage fallback) ----------
-  const getStorageKey = () => {
-    if (isMasterInventory) return 'inventory_columns_master';
-    if (isItInventory) return 'inventory_columns_it';
-    const key = categoryName || title || 'default';
-    return `inventory_columns_${key}`;
-  };
-
-  // Load visibility from localStorage (fallback)
-  const loadFromLocalStorage = () => {
-    const stored = localStorage.getItem(getStorageKey());
+  const getDefaultVisible = () => {
+    const stored = localStorage.getItem('inventory_columns');
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
@@ -128,168 +107,15 @@ const InventoryList = ({
         return merged;
       } catch {}
     }
-    // No saved preference → check preset
-    const preset = CATEGORY_COLUMN_PRESETS[categoryName];
-    if (preset) {
-      const presetVis = {};
-      Object.keys(COLUMN_DEFS).forEach(key => {
-        presetVis[key] = preset.includes(key);
-      });
-      return presetVis;
-    }
     return { ...DEFAULT_VISIBLE };
   };
 
-  const [visibleColumns, setVisibleColumns] = useState(loadFromLocalStorage);
+  const [visibleColumns, setVisibleColumns] = useState(getDefaultVisible);
 
-  // ---------- Load from DB if categoryId is provided ----------
-  const loadCategoryColumnsFromDB = async () => {
-    if (!categoryId) return; // no DB for master/IT
-    setLoadingColumns(true);
-    try {
-      const response = await axios.get(`${API_URL}/api/category-columns/${categoryId}`);
-      if (response.data && response.data.length > 0) {
-        // Build visibility object from DB
-        const dbVis = {};
-        Object.keys(COLUMN_DEFS).forEach(key => {
-          const found = response.data.find(col => col.column_key === key);
-          dbVis[key] = found ? found.is_visible === 1 : true;
-        });
-        setVisibleColumns(dbVis);
-        // Also save to localStorage as a backup (optional)
-        localStorage.setItem(getStorageKey(), JSON.stringify(dbVis));
-      } else {
-        // No DB entries – use localStorage fallback
-        const localVis = loadFromLocalStorage();
-        setVisibleColumns(localVis);
-      }
-    } catch (error) {
-      console.error('Error loading category columns from DB:', error);
-      // Fallback to localStorage
-      const localVis = loadFromLocalStorage();
-      setVisibleColumns(localVis);
-    } finally {
-      setLoadingColumns(false);
-    }
-  };
-
-  // Reload when category changes
   useEffect(() => {
-    if (categoryId) {
-      loadCategoryColumnsFromDB();
-    } else {
-      // For master/IT, use localStorage
-      setVisibleColumns(loadFromLocalStorage());
-    }
-    setActiveTab(null);
-  }, [categoryId, categoryName, isMasterInventory, isItInventory]);
+    localStorage.setItem('inventory_columns', JSON.stringify(visibleColumns));
+  }, [visibleColumns]);
 
-  // Save to localStorage whenever visibility changes (backup)
-  useEffect(() => {
-    localStorage.setItem(getStorageKey(), JSON.stringify(visibleColumns));
-  }, [visibleColumns, categoryName, isMasterInventory, isItInventory]);
-
-  // Apply category preset when a sub‑tab is clicked (only for Master view)
-  useEffect(() => {
-    if (activeTab) {
-      const category = categories.find(c => c.id === activeTab);
-      if (category) {
-        const preset = CATEGORY_COLUMN_PRESETS[category.name];
-        if (preset) {
-          const newVisibility = {};
-          Object.keys(COLUMN_DEFS).forEach(key => {
-            newVisibility[key] = preset.includes(key);
-          });
-          setVisibleColumns(newVisibility);
-          localStorage.setItem(getStorageKey(), JSON.stringify(newVisibility));
-        }
-      }
-    }
-  }, [activeTab]);
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setShowColumnDropdown(false);
-      }
-    };
-    if (showColumnDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
-    } else {
-      document.removeEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showColumnDropdown]);
-
-  const toggleColumn = (key) => {
-    setVisibleColumns(prev => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  // ---------- Manage Columns: Open modal ----------
-  const openManageColumns = () => {
-    // Build editing list from current visibleColumns
-    const current = ALL_COLUMNS.map(col => ({
-      key: col.key,
-      label: col.label,
-      is_visible: visibleColumns[col.key] !== false
-    }));
-    setEditingColumns(current);
-    setShowManageColumns(true);
-    setShowColumnDropdown(false);
-  };
-
-  const toggleEditColumn = (key) => {
-    setEditingColumns(prev => 
-      prev.map(col => 
-        col.key === key ? { ...col, is_visible: !col.is_visible } : col
-      )
-    );
-  };
-
-  const saveCategoryColumns = async () => {
-    if (!categoryId) return;
-    try {
-      const columnsToSave = editingColumns.map(col => ({
-        column_key: col.key,
-        column_label: col.label,
-        is_visible: col.is_visible !== false
-      }));
-      await axios.put(`${API_URL}/api/category-columns/${categoryId}`, {
-        columns: columnsToSave
-      });
-      // Update visibleColumns from editingColumns
-      const newVis = {};
-      editingColumns.forEach(col => {
-        newVis[col.key] = col.is_visible !== false;
-      });
-      setVisibleColumns(newVis);
-      localStorage.setItem(getStorageKey(), JSON.stringify(newVis));
-      setShowManageColumns(false);
-      alert('✅ Columns updated successfully!');
-    } catch (error) {
-      console.error('Error saving columns:', error);
-      alert('❌ Failed to save columns');
-    }
-  };
-
-  // ---------- Available columns – include assignedTo & designation everywhere ----------
-  const getColumnKeys = () => {
-    const base = [
-      'brand', 'model', 'serial', 'specs', 'qty', 'price',
-      'asset', 'assetCode', 'condition', 'remarks', 'location',
-      'department', 'email',
-      'assignedTo', 'designation'
-    ];
-    if (isMasterInventory) base.unshift('category');
-    if (isTrueMaster) base.push('employeeId', 'dateOfIssuance');
-    return base.filter(key => COLUMN_DEFS[key]);
-  };
-  const availableColumns = getColumnKeys();
-
-  // ---------- Get categories for tabs ----------
   const getCategoriesFromItems = () => {
     const map = {};
     items.forEach(item => {
@@ -320,7 +146,58 @@ const InventoryList = ({
     }
   }
 
-  // ---------- GROUPING (for export) ----------
+  const categoryTintMap = {};
+  categories.forEach((cat, idx) => {
+    categoryTintMap[cat.id] = getTint(idx);
+  });
+
+  useEffect(() => {
+    if (activeTab) {
+      const category = categories.find(c => c.id === activeTab);
+      if (category) {
+        const preset = CATEGORY_COLUMN_PRESETS[category.name];
+        if (preset) {
+          const newVisibility = {};
+          Object.keys(COLUMN_DEFS).forEach(key => {
+            newVisibility[key] = preset.includes(key);
+          });
+          setVisibleColumns(newVisibility);
+          localStorage.setItem('inventory_columns', JSON.stringify(newVisibility));
+        }
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (columnRef.current && !columnRef.current.contains(event.target)) {
+        setShowColumnDropdown(false);
+      }
+      if (exportRef.current && !exportRef.current.contains(event.target)) {
+        setShowExportDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const toggleColumn = (key) => {
+    setVisibleColumns(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const getColumnKeys = () => {
+    const base = [
+      'brand', 'model', 'serial', 'specs', 'qty', 'price',
+      'asset', 'assetCode', 'condition', 'remarks', 'location',
+      'department', 'email'
+    ];
+    if (isMasterInventory) base.unshift('category');
+    if (isTrueMaster) base.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
+    return base.filter(key => COLUMN_DEFS[key]);
+  };
+  const availableColumns = getColumnKeys();
+
   const getCategoryGroups = (allItems) => {
     const groups = {};
     allItems.forEach(item => {
@@ -338,95 +215,76 @@ const InventoryList = ({
     return Object.values(groups).sort((a, b) => a.name.localeCompare(b.name));
   };
 
-  // ---------- EXPORT: EXCEL ----------
+  const columnOrder = [
+    'brand', 'model', 'serial', 'specs', 'qty', 'price',
+    'asset', 'assetCode', 'condition', 'remarks', 'location',
+    'department', 'email'
+  ];
+  if (isTrueMaster) {
+    columnOrder.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
+  }
+
+  const buildValueMap = (item) => ({
+    brand: item.brand || '',
+    model: item.model || '',
+    serial: item.serial_number || '',
+    specs: item.specifications || '',
+    qty: item.quantity || 0,
+    price: formatPKR(item.price),
+    asset: item.asset || '',
+    assetCode: item.asset_code || '',
+    condition: item.condition || '',
+    remarks: item.remarks || '',
+    location: item.location || '',
+    department: item.department || '',
+    email: item.email || '',
+    assignedTo: item.assigned_to || '',
+    employeeId: item.employee_id || '',
+    designation: item.designation || '',
+    dateOfIssuance: formatDate(item.date_of_issuance),
+  });
+
   const handleExportExcel = () => {
+    setShowExportDropdown(false);
     const allItems = items;
     const groups = getCategoryGroups(allItems);
     const filename = title || 'Inventory';
 
     const buildHeaders = () => {
-      const headers = [];
-      headers.push('#');
+      const headers = ['#'];
       if (isMasterInventory && visibleColumns.category) headers.push('Category');
-      const order = [
-        'brand', 'model', 'serial', 'specs', 'qty', 'price',
-        'asset', 'assetCode', 'condition', 'remarks', 'location',
-        'department', 'email', 'assignedTo', 'designation'
-      ];
-      if (isTrueMaster) {
-        order.push('employeeId', 'dateOfIssuance');
-      }
-      order.forEach(key => {
-        if (availableColumns.includes(key) && visibleColumns[key]) {
-          headers.push(COLUMN_DEFS[key].label);
-        }
+      columnOrder.forEach(key => {
+        if (availableColumns.includes(key) && visibleColumns[key]) headers.push(COLUMN_DEFS[key].label);
       });
       return headers;
     };
 
-    const buildRows = (itemsList) => {
-      return itemsList.map((item, idx) => {
-        const row = {};
-        row['#'] = idx + 1;
-        if (isMasterInventory && visibleColumns.category) {
-          row['Category'] = item.type_name || '';
-        }
-        const valueMap = {
-          brand: item.brand || '',
-          model: item.model || '',
-          serial: item.serial_number || '',
-          specs: item.specifications || '',
-          qty: item.quantity || 0,
-          price: formatPKR(item.price),
-          asset: item.asset || '',
-          assetCode: item.asset_code || '',
-          condition: item.condition || '',
-          remarks: item.remarks || '',
-          location: item.location || '',
-          department: item.department || '',
-          email: item.email || '',
-          assignedTo: item.assigned_to || '',
-          employeeId: item.employee_id || '',
-          designation: item.designation || '',
-          dateOfIssuance: formatDate(item.date_of_issuance),
-        };
-        const order = [
-          'brand', 'model', 'serial', 'specs', 'qty', 'price',
-          'asset', 'assetCode', 'condition', 'remarks', 'location',
-          'department', 'email', 'assignedTo', 'designation'
-        ];
-        if (isTrueMaster) {
-          order.push('employeeId', 'dateOfIssuance');
-        }
-        order.forEach(key => {
-          if (availableColumns.includes(key) && visibleColumns[key]) {
-            row[COLUMN_DEFS[key].label] = valueMap[key];
-          }
-        });
-        return row;
+    const buildRows = (itemsList) => itemsList.map((item, idx) => {
+      const row = { '#': idx + 1 };
+      if (isMasterInventory && visibleColumns.category) row['Category'] = item.type_name || '';
+      const valueMap = buildValueMap(item);
+      columnOrder.forEach(key => {
+        if (availableColumns.includes(key) && visibleColumns[key]) row[COLUMN_DEFS[key].label] = valueMap[key];
       });
-    };
+      return row;
+    });
 
     const headers = buildHeaders();
     const wb = XLSX.utils.book_new();
-
-    const allRows = buildRows(allItems);
-    const wsAll = XLSX.utils.json_to_sheet(allRows, { header: headers });
+    const wsAll = XLSX.utils.json_to_sheet(buildRows(allItems), { header: headers });
     XLSX.utils.book_append_sheet(wb, wsAll, 'All Items');
 
     groups.forEach(group => {
-      const rows = buildRows(group.items);
-      const ws = XLSX.utils.json_to_sheet(rows, { header: headers });
-      let sheetName = group.name.slice(0, 31);
-      sheetName = sheetName.replace(/[\\/*?:[\]]/g, '');
+      const ws = XLSX.utils.json_to_sheet(buildRows(group.items), { header: headers });
+      let sheetName = group.name.slice(0, 31).replace(/[\\/*?:[\]]/g, '');
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
     });
 
     XLSX.writeFile(wb, `${filename}.xlsx`);
   };
 
-  // ---------- EXPORT: PDF ----------
   const handleExportPDF = () => {
+    setShowExportDropdown(false);
     const allItems = items;
     const groups = getCategoryGroups(allItems);
     const filename = title || 'Inventory';
@@ -434,21 +292,10 @@ const InventoryList = ({
     const doc = new jsPDF('landscape', 'mm', 'a4');
     doc.setFont('helvetica');
 
-    const headers = [];
-    headers.push('#');
+    const headers = ['#'];
     if (isMasterInventory && visibleColumns.category) headers.push('Category');
-    const order = [
-      'brand', 'model', 'serial', 'specs', 'qty', 'price',
-      'asset', 'assetCode', 'condition', 'remarks', 'location',
-      'department', 'email', 'assignedTo', 'designation'
-    ];
-    if (isTrueMaster) {
-      order.push('employeeId', 'dateOfIssuance');
-    }
-    order.forEach(key => {
-      if (availableColumns.includes(key) && visibleColumns[key]) {
-        headers.push(COLUMN_DEFS[key].label);
-      }
+    columnOrder.forEach(key => {
+      if (availableColumns.includes(key) && visibleColumns[key]) headers.push(COLUMN_DEFS[key].label);
     });
 
     const drawCategory = (group, startY) => {
@@ -457,40 +304,11 @@ const InventoryList = ({
       const yAfterTitle = startY + 8;
 
       const tableData = group.items.map((item, idx) => {
-        const row = [];
-        row.push(idx + 1);
+        const row = [idx + 1];
         if (isMasterInventory && visibleColumns.category) row.push(item.type_name || '');
-        const orderKeys = [
-          'brand', 'model', 'serial', 'specs', 'qty', 'price',
-          'asset', 'assetCode', 'condition', 'remarks', 'location',
-          'department', 'email', 'assignedTo', 'designation'
-        ];
-        if (isTrueMaster) {
-          orderKeys.push('employeeId', 'dateOfIssuance');
-        }
-        const valueMap = {
-          brand: item.brand || '',
-          model: item.model || '',
-          serial: item.serial_number || '',
-          specs: item.specifications || '',
-          qty: item.quantity || 0,
-          price: formatPKR(item.price),
-          asset: item.asset || '',
-          assetCode: item.asset_code || '',
-          condition: item.condition || '',
-          remarks: item.remarks || '',
-          location: item.location || '',
-          department: item.department || '',
-          email: item.email || '',
-          assignedTo: item.assigned_to || '',
-          employeeId: item.employee_id || '',
-          designation: item.designation || '',
-          dateOfIssuance: formatDate(item.date_of_issuance),
-        };
-        orderKeys.forEach(key => {
-          if (availableColumns.includes(key) && visibleColumns[key]) {
-            row.push(valueMap[key]);
-          }
+        const valueMap = buildValueMap(item);
+        columnOrder.forEach(key => {
+          if (availableColumns.includes(key) && visibleColumns[key]) row.push(valueMap[key]);
         });
         return row;
       });
@@ -500,7 +318,7 @@ const InventoryList = ({
         body: tableData,
         startY: yAfterTitle,
         styles: { fontSize: 8, font: 'helvetica' },
-        headStyles: { fillColor: [41, 128, 185], font: 'helvetica' },
+        headStyles: { fillColor: [79, 70, 229], font: 'helvetica' },
         margin: { left: 10, right: 10 },
       });
 
@@ -515,158 +333,95 @@ const InventoryList = ({
     doc.save(`${filename}.pdf`);
   };
 
-  // ---------- RENDER HELPERS ----------
   const renderHeaders = () => {
-    const headers = [];
-    headers.push(<th key="#">#</th>);
+    const headers = [<th key="#" style={styles.th}>#</th>];
     if (isMasterInventory && visibleColumns.category) {
-      headers.push(<th key="category">Category</th>);
+      headers.push(<th key="category" style={styles.th}>Category</th>);
     }
-    const order = [
-      'brand', 'model', 'serial', 'specs', 'qty', 'price',
-      'asset', 'assetCode', 'condition', 'remarks', 'location',
-      'department', 'email', 'assignedTo', 'designation'
-    ];
-    if (isTrueMaster) {
-      order.push('employeeId', 'dateOfIssuance');
-    }
-    order.forEach(key => {
+    columnOrder.forEach(key => {
       if (availableColumns.includes(key) && visibleColumns[key]) {
-        headers.push(<th key={key}>{COLUMN_DEFS[key].label}</th>);
+        headers.push(<th key={key} style={styles.th}>{COLUMN_DEFS[key].label}</th>);
       }
     });
-    headers.push(<th key="actions">Actions</th>);
+    headers.push(<th key="actions" style={{ ...styles.th, textAlign: 'right' }}>Actions</th>);
     return headers;
   };
 
   const getConditionBadge = (condition) => {
-    if (!condition) return '-';
-    const badges = {
-      'New': <span className="condition new">🆕 New</span>,
-      'Refurbed': <span className="condition refurbed">🔄 Refurbed</span>,
-      'Damaged': <span className="condition damaged">❌ Damaged</span>,
-      'Used': <span className="condition used">📦 Used</span>,
-      'Condemned': <span className="condition condemned">⛔ Condemned</span>,
-    };
-    return badges[condition] || condition;
-  };
-
-  // ---------- RETURN MODAL HANDLERS ----------
-  const openReturnModal = (item) => {
-    setReturnItem(item);
-    setReturnData({ email: '', backup_done: false, remarks: '' });
-    setShowReturnModal(true);
-  };
-
-  const handleReturnChange = (e) => {
-    const { name, value, type, checked } = e.target;
-    setReturnData(prev => ({
-      ...prev,
-      [name]: type === 'checkbox' ? checked : value
-    }));
-  };
-
-  const submitReturn = async () => {
-    if (!returnItem) return;
-    try {
-      await axios.post(`${API_URL}/api/inventory/return`, {
-        item_id: returnItem.id,
-        email: returnData.email,
-        backup_done: returnData.backup_done,
-        remarks: returnData.remarks,
-        returned_by: 'User'
-      });
-      alert('Item returned successfully!');
-      setShowReturnModal(false);
-      if (onRefresh) onRefresh();
-      else {
-        window.location.reload();
-      }
-    } catch (error) {
-      console.error('Error returning item:', error);
-      alert('Failed to return item');
-    }
+    if (!condition) return <span style={styles.dash}>-</span>;
+    const c = CONDITION_STYLES[condition];
+    if (!c) return condition;
+    return (
+      <span style={{ ...styles.conditionBadge, background: c.bg, color: c.text }}>
+        <span style={{ ...styles.conditionDot, background: c.dot }} />
+        {condition}
+      </span>
+    );
   };
 
   const renderRowCells = (item, index) => {
-    const cells = [];
-    cells.push(<td key={`${item.id}-num`}>{index + 1}</td>);
+    const cells = [<td key={`${item.id}-num`} style={{ ...styles.td, color: '#C1C4CC' }}>{index + 1}</td>];
     if (isMasterInventory && visibleColumns.category) {
+      const tint = categoryTintMap[item.type_id] || '#6B7280';
       cells.push(
-        <td key={`${item.id}-category`}>
-          <span className="category-tag">
-            {item.type_icon || '📦'} {item.type_name}
+        <td key={`${item.id}-category`} style={styles.td}>
+          <span style={styles.categoryTag}>
+            <span style={{ ...styles.categoryDot, background: tint }} />
+            {item.type_name}
           </span>
         </td>
       );
     }
-    const order = [
-      'brand', 'model', 'serial', 'specs', 'qty', 'price',
-      'asset', 'assetCode', 'condition', 'remarks', 'location',
-      'department', 'email', 'assignedTo', 'designation'
-    ];
-    if (isTrueMaster) {
-      order.push('employeeId', 'dateOfIssuance');
-    }
+    const dash = <span style={styles.dash}>-</span>;
     const valueMap = {
-      brand: item.brand || '-',
-      model: item.model || '-',
-      serial: item.serial_number || '-',
-      specs: item.specifications || '-',
+      brand: item.brand || dash,
+      model: item.model || dash,
+      serial: item.serial_number || dash,
+      specs: item.specifications || dash,
       qty: item.quantity,
-      price: <span className="price-pkr">{formatPKR(item.price)}</span>,
-      asset: <strong style={{ color: '#4361ee' }}>{item.asset || '-'}</strong>,
-      assetCode: item.asset_code || '-',
+      price: <span style={styles.price}>{formatPKR(item.price)}</span>,
+      asset: <span style={styles.assetLink}>{item.asset || '-'}</span>,
+      assetCode: item.asset_code || dash,
       condition: getConditionBadge(item.condition),
-      remarks: item.remarks || '-',
-      location: item.location || '-',
-      department: item.department || '-',
-      email: item.email || '-',
-      assignedTo: item.assigned_to || '-',
-      employeeId: item.employee_id || '-',
-      designation: item.designation || '-',
+      remarks: item.remarks || dash,
+      location: item.location || dash,
+      department: item.department || dash,
+      email: item.email || dash,
+      assignedTo: item.assigned_to || dash,
+      employeeId: item.employee_id || dash,
+      designation: item.designation || dash,
       dateOfIssuance: formatDate(item.date_of_issuance),
     };
-    order.forEach(key => {
+    columnOrder.forEach(key => {
       if (availableColumns.includes(key) && visibleColumns[key]) {
-        cells.push(<td key={`${item.id}-${key}`}>{valueMap[key]}</td>);
+        cells.push(<td key={`${item.id}-${key}`} style={styles.td}>{valueMap[key]}</td>);
       }
     });
     cells.push(
-      <td key={`${item.id}-actions`}>
-        <div className="action-buttons">
-          <button className="action-btn view" onClick={() => onViewItem && onViewItem(item)} title="View">
-            <FaEye />
+      <td key={`${item.id}-actions`} style={{ ...styles.td, textAlign: 'right' }}>
+        <div style={styles.actionRow}>
+          <button className="gl-icon-btn gl-icon-view" style={styles.iconBtn} onClick={() => onViewItem && onViewItem(item)} title="View">
+            <FaEye size={12} />
           </button>
-          <button className="action-btn edit" onClick={() => onEditItem && onEditItem(item)} title="Edit">
-            <FaEdit />
+          <button className="gl-icon-btn gl-icon-edit" style={styles.iconBtn} onClick={() => onEditItem && onEditItem(item)} title="Edit">
+            <FaEdit size={12} />
           </button>
-          <button className="action-btn delete" onClick={() => onDeleteItem(item.id)} title="Delete">
-            <FaTrash />
+          <button className="gl-icon-btn gl-icon-delete" style={styles.iconBtn} onClick={() => onDeleteItem(item.id)} title="Delete">
+            <FaTrash size={12} />
           </button>
-          {item.assigned_to && (
-            <button className="action-btn return" onClick={() => openReturnModal(item)} title="Return">
-              <FaUndo /> Return
-            </button>
-          )}
         </div>
       </td>
     );
     return cells;
   };
 
-  // ---------- FILTERING ----------
   const getFilteredItems = () => {
     let filtered = items;
-    if (activeTab) {
-      filtered = filtered.filter(item => item.type_id === activeTab);
-    }
+    if (activeTab) filtered = filtered.filter(item => item.type_id === activeTab);
     if (conditionFilter) {
-      if (conditionFilter === 'empty') {
-        filtered = filtered.filter(item => !item.condition || item.condition === '');
-      } else {
-        filtered = filtered.filter(item => item.condition === conditionFilter);
-      }
+      filtered = conditionFilter === 'empty'
+        ? filtered.filter(item => !item.condition || item.condition === '')
+        : filtered.filter(item => item.condition === conditionFilter);
     }
     if (searchTerm && searchTerm.trim() !== '') {
       const term = searchTerm.toLowerCase().trim();
@@ -694,239 +449,571 @@ const InventoryList = ({
   const visibleDataCols = availableColumns.filter(key => visibleColumns[key]).length;
   const colSpan = 2 + visibleDataCols;
 
-  if (loading || loadingColumns) {
+  if (loading) {
     return (
-      <div className="loading">
-        <div className="spinner"></div>
-        <p>Loading equipment...</p>
+      <div style={styles.page}>
+        <div style={styles.loadingWrap}>
+          <div style={styles.spinner} />
+          <p style={styles.loadingText}>Loading equipment…</p>
+        </div>
+        <style>{sheet}</style>
       </div>
     );
   }
 
   return (
-    <div className="inventory-list">
-      <div className="list-header">
-        <h2>
-          {isMasterInventory ? <FaDatabase /> : '📋'}
-          {title || 'Inventory'}
-          <span className="count">({items.length} items)</span>
-        </h2>
-        <div className="actions">
-          <div className="filter-group">
-            <select
-              value={conditionFilter}
-              onChange={(e) => setConditionFilter(e.target.value)}
-              className="filter-select"
-            >
-              <option value="">All Conditions</option>
-              <option value="New">🆕 New</option>
-              <option value="Refurbed">🔄 Refurbed</option>
-              <option value="Damaged">❌ Damaged</option>
-              <option value="Used">📦 Used</option>
-              <option value="Condemned">⛔ Condemned</option>
-              <option value="empty">Empty</option>
-            </select>
-          </div>
-          <div className="search-box">
-            <FaSearch className="search-icon" />
-            <input
-              type="text"
-              placeholder="Search by name, brand, model, S/N, asset, email..."
-              value={searchTerm}
-              onChange={(e) => onSearch(e.target.value)}
-            />
-          </div>
-          {isItInventory && (
-            <button className="btn-primary" onClick={onAddItem}>
-              <FaPlus /> Add Equipment
-            </button>
-          )}
-          {/* Manage Columns – only when a specific category is selected */}
-          {categoryId && (
-            <button className="btn-secondary" onClick={openManageColumns}>
-              <FaColumns /> Manage Columns
-            </button>
-          )}
-          <div className="column-toggle-wrapper" ref={dropdownRef}>
-            <button
-              className="btn-secondary"
-              onClick={() => setShowColumnDropdown(!showColumnDropdown)}
-            >
-              <FaColumns /> Columns
-            </button>
-            {showColumnDropdown && (
-              <div className="column-dropdown">
-                {availableColumns.map(key => (
-                  <label key={key} className="column-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns[key] || false}
-                      onChange={() => toggleColumn(key)}
-                    />
-                    {COLUMN_DEFS[key].label}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-          <ExportDropdown
-            onExportExcel={handleExportExcel}
-            onExportPDF={handleExportPDF}
-          />
-        </div>
-      </div>
+    <div style={styles.page}>
+      <style>{sheet}</style>
 
-      {/* Manage Columns Modal */}
-      {showManageColumns && (
-        <div className="modal-overlay" onClick={() => setShowManageColumns(false)}>
-          <div className="modal modal-large" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
-            <div className="modal-header">
-              <h2><FaColumns /> Manage Columns – {title}</h2>
-              <button className="close-btn" onClick={() => setShowManageColumns(false)}>×</button>
+      <div style={styles.shell}>
+        {/* Sidebar — category navigation lives here now, out of the way of the data */}
+        {isMasterInventory && categories.length > 0 && (
+          <aside style={styles.sidebar}>
+            <div style={styles.sidebarHeader}>
+              <FaLayerGroup size={12} color="#9CA3AF" />
+              <span>Categories</span>
             </div>
-            <div className="modal-body">
-              <p style={{ marginBottom: '15px', color: '#666' }}>
-                Check the columns you want to show in this category. Uncheck to hide them.
-              </p>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
-                {editingColumns.map(col => (
-                  <label key={col.key} style={{ display: 'flex', alignItems: 'center', padding: '6px 10px', background: '#f5f5f5', borderRadius: '4px', cursor: 'pointer' }}>
-                    <input
-                      type="checkbox"
-                      checked={col.is_visible !== false}
-                      onChange={() => toggleEditColumn(col.key)}
-                      style={{ marginRight: '8px' }}
-                    />
-                    <span>{col.label}</span>
-                  </label>
-                ))}
-              </div>
-            </div>
-            <div className="form-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
-              <button className="btn-cancel" onClick={() => setShowManageColumns(false)}>
-                <FaTimes /> Cancel
-              </button>
-              <button className="btn-submit" onClick={saveCategoryColumns}>
-                <FaSave /> Save Columns
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
 
-      {isMasterInventory && categories.length > 0 && (
-        <div className="master-tabs-container">
-          <div className="master-tabs">
-            <button
-              className={`master-tab ${!activeTab ? 'active' : ''}`}
-              onClick={() => setActiveTab(null)}
-            >
-              <span className="tab-icon">📋</span>
-              <span className="tab-label">All Items</span>
-              <span className="tab-badge">{items.length}</span>
-            </button>
-            {categories.map(cat => (
+            <nav style={styles.navList}>
               <button
-                key={cat.id}
-                className={`master-tab ${activeTab === cat.id ? 'active' : ''}`}
-                onClick={() => handleTabClick(cat.id)}
+                onClick={() => setActiveTab(null)}
+                style={{ ...styles.navItem, ...(!activeTab ? styles.navItemActive : {}) }}
               >
-                <span className="tab-icon">{cat.icon || '📦'}</span>
-                <span className="tab-label">{cat.name}</span>
-                <span className="tab-badge">{cat.count}</span>
+                <span style={styles.navLabel}>All items</span>
+                <span style={{ ...styles.navCount, ...(!activeTab ? styles.navCountActive : {}) }}>{items.length}</span>
               </button>
-            ))}
+
+              {categories.map(cat => {
+                const tint = categoryTintMap[cat.id];
+                const isActive = activeTab === cat.id;
+                return (
+                  <button
+                    key={cat.id}
+                    onClick={() => handleTabClick(cat.id)}
+                    style={{ ...styles.navItem, ...(isActive ? styles.navItemActive : {}) }}
+                  >
+                    <span style={styles.navLabel}>
+                      <span style={{ ...styles.navDot, background: isActive ? '#fff' : tint }} />
+                      {cat.name}
+                    </span>
+                    <span style={{ ...styles.navCount, ...(isActive ? styles.navCountActive : {}) }}>{cat.count}</span>
+                  </button>
+                );
+              })}
+            </nav>
+
+            <div style={styles.sidebarDivider} />
+
+            <div style={styles.sidebarHeader}>Condition</div>
+            <div style={styles.filterList}>
+              <button
+                onClick={() => setConditionFilter('')}
+                style={{ ...styles.filterItem, ...(!conditionFilter ? styles.filterItemActive : {}) }}
+              >
+                Any
+              </button>
+              {CONDITIONS.map(c => (
+                <button
+                  key={c}
+                  onClick={() => setConditionFilter(conditionFilter === c ? '' : c)}
+                  style={{ ...styles.filterItem, ...(conditionFilter === c ? styles.filterItemActive : {}) }}
+                >
+                  <span style={{ ...styles.filterDot, background: CONDITION_STYLES[c]?.dot || '#9CA3AF' }} />
+                  {c}
+                </button>
+              ))}
+            </div>
+          </aside>
+        )}
+
+        {/* Main workspace */}
+        <main style={styles.main}>
+          <div style={styles.mainHeader}>
+            <div>
+              <h1 style={styles.listTitle}>
+                {activeTab ? getActiveCategoryName() : (title || 'Inventory')}
+              </h1>
+              <p style={styles.titleSub}>{filteredItems.length} of {items.length} items{conditionFilter ? ` · ${conditionFilter}` : ''}</p>
+            </div>
+
+            <div style={styles.headerActions}>
+              <div style={styles.searchBox}>
+                <FaSearch style={styles.searchIcon} size={12} />
+                <input
+                  type="text"
+                  placeholder="Search…"
+                  value={searchTerm}
+                  onChange={(e) => onSearch(e.target.value)}
+                  style={styles.searchInput}
+                />
+              </div>
+
+              <div style={{ position: 'relative' }} ref={columnRef}>
+                <button style={styles.iconOnlyBtn} onClick={() => setShowColumnDropdown(!showColumnDropdown)} title="Columns">
+                  <FaColumns size={13} />
+                </button>
+                {showColumnDropdown && (
+                  <div style={styles.dropdown}>
+                    <div style={styles.dropdownHeader}>Show columns</div>
+                    {availableColumns.map(key => (
+                      <label key={key} className="gl-checkbox-row" style={styles.checkboxRow}>
+                        <input
+                          type="checkbox"
+                          checked={visibleColumns[key]}
+                          onChange={() => toggleColumn(key)}
+                          style={{ accentColor: ACCENT }}
+                        />
+                        {COLUMN_DEFS[key].label}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div style={{ position: 'relative' }} ref={exportRef}>
+                <button style={styles.iconOnlyBtn} onClick={() => setShowExportDropdown(!showExportDropdown)} title="Export">
+                  <FaFileExport size={13} />
+                </button>
+                {showExportDropdown && (
+                  <div style={{ ...styles.dropdown, minWidth: '150px' }}>
+                    <button style={styles.exportOption} onClick={handleExportExcel}>Export as Excel</button>
+                    <button style={styles.exportOption} onClick={handleExportPDF}>Export as PDF</button>
+                  </div>
+                )}
+              </div>
+
+              {isItInventory && (
+                <button className="gl-btn-primary" style={styles.btnPrimary} onClick={onAddItem}>
+                  <FaPlus size={12} /> Add equipment
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
 
-      {isMasterInventory && activeTab && (
-        <div className="active-category-label">
-          Showing: <strong>{getActiveCategoryName()}</strong>
-          <span className="count">({filteredItems.length} items)</span>
-          <button className="clear-filter" onClick={() => setActiveTab(null)}>
-            ✕ Clear Filter
-          </button>
-        </div>
-      )}
-
-      <div className="items-table">
-        <table>
-          <thead>
-            <tr>{renderHeaders()}</tr>
-          </thead>
-          <tbody>
-            {filteredItems.length === 0 ? (
-              <tr>
-                <td colSpan={colSpan} className="empty-state">
-                  <div className="empty-icon">📭</div>
-                  <h3>No Equipment Found</h3>
-                  <p>Try adjusting your search or add new equipment.</p>
-                  {isItInventory && (
-                    <button className="btn-primary" onClick={onAddItem}>
-                      <FaPlus /> Add Equipment
-                    </button>
+          <div style={styles.tableCard}>
+            <div style={styles.tableScroll}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>{renderHeaders()}</tr>
+                </thead>
+                <tbody>
+                  {filteredItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={colSpan} style={styles.emptyCell}>
+                        <div style={styles.emptyWrap}>
+                          <div style={styles.emptyIcon}><FaInbox size={18} /></div>
+                          <h3 style={styles.emptyTitle}>No equipment found</h3>
+                          <p style={styles.emptyText}>Try adjusting your search or filters.</p>
+                          {isItInventory && (
+                            <button className="gl-btn-primary" style={styles.btnPrimary} onClick={onAddItem}>
+                              <FaPlus size={12} /> Add equipment
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredItems.map((item, index) => (
+                      <tr key={item.id} className="gl-row">{renderRowCells(item, index)}</tr>
+                    ))
                   )}
-                </td>
-              </tr>
-            ) : (
-              filteredItems.map((item, index) => (
-                <tr key={item.id}>{renderRowCells(item, index)}</tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      {/* Return Modal */}
-      {showReturnModal && returnItem && (
-        <div className="modal-overlay" onClick={() => setShowReturnModal(false)}>
-          <div className="modal modal-large" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-            <div className="modal-header">
-              <h2>Return Asset – {returnItem.name}</h2>
-              <button className="close-btn" onClick={() => setShowReturnModal(false)}>×</button>
-            </div>
-            <div className="modal-body">
-              <div className="form-group">
-                <label>Email</label>
-                <input
-                  type="email"
-                  name="email"
-                  value={returnData.email}
-                  onChange={handleReturnChange}
-                  placeholder="email@domain.com"
-                />
-              </div>
-              <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                <input
-                  type="checkbox"
-                  name="backup_done"
-                  checked={returnData.backup_done}
-                  onChange={handleReturnChange}
-                  id="backupCheck"
-                />
-                <label htmlFor="backupCheck">Backup Done?</label>
-              </div>
-              <div className="form-group">
-                <label>Remarks</label>
-                <textarea
-                  name="remarks"
-                  value={returnData.remarks}
-                  onChange={handleReturnChange}
-                  rows="3"
-                  placeholder="Any notes about the return..."
-                />
-              </div>
-            </div>
-            <div className="form-actions">
-              <button className="btn-cancel" onClick={() => setShowReturnModal(false)}>Cancel</button>
-              <button className="btn-submit" onClick={submitReturn}>Confirm Return</button>
+                </tbody>
+              </table>
             </div>
           </div>
-        </div>
-      )}
+        </main>
+      </div>
     </div>
   );
 };
+
+const styles = {
+  page: {
+    minHeight: '100%',
+    background: '#F6F6F8',
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  },
+  shell: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '0',
+    minHeight: '100vh',
+  },
+
+  /* Sidebar */
+  sidebar: {
+    width: '220px',
+    flexShrink: 0,
+    padding: '24px 14px',
+    borderRight: '1px solid #EAEAEE',
+    position: 'sticky',
+    top: 0,
+    height: '100vh',
+    overflowY: 'auto',
+    background: '#FBFBFC',
+  },
+  sidebarHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '7px',
+    fontSize: '11px',
+    fontWeight: 700,
+    color: '#9CA3AF',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    padding: '0 10px',
+    marginBottom: '8px',
+  },
+  navList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+  },
+  navItem: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '8px',
+    height: '34px',
+    padding: '0 10px',
+    borderRadius: '8px',
+    border: 'none',
+    background: 'transparent',
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#4B5563',
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
+  navItemActive: {
+    background: INK,
+    color: '#fff',
+    fontWeight: 600,
+  },
+  navLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '9px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  navDot: {
+    width: '6px',
+    height: '6px',
+    borderRadius: '50%',
+    flexShrink: 0,
+  },
+  navCount: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: '#9CA3AF',
+    flexShrink: 0,
+  },
+  navCountActive: {
+    color: 'rgba(255,255,255,0.7)',
+  },
+  sidebarDivider: {
+    height: '1px',
+    background: '#EAEAEE',
+    margin: '18px 10px',
+  },
+  filterList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+  },
+  filterItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    height: '30px',
+    padding: '0 10px',
+    borderRadius: '7px',
+    border: 'none',
+    background: 'transparent',
+    fontSize: '12.5px',
+    color: '#6B7280',
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
+  filterItemActive: {
+    background: '#EEF2FF',
+    color: ACCENT,
+    fontWeight: 600,
+  },
+  filterDot: {
+    width: '6px',
+    height: '6px',
+    borderRadius: '50%',
+    flexShrink: 0,
+  },
+
+  /* Main */
+  main: {
+    flex: 1,
+    minWidth: 0,
+    padding: '24px 32px 40px',
+  },
+  mainHeader: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '14px',
+    marginBottom: '18px',
+  },
+  listTitle: {
+    fontSize: '19px',
+    fontWeight: 700,
+    color: '#111827',
+    margin: 0,
+    lineHeight: 1.3,
+  },
+  titleSub: {
+    fontSize: '12.5px',
+    color: '#9CA3AF',
+    margin: '2px 0 0',
+  },
+  headerActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  searchBox: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    width: '220px',
+  },
+  searchIcon: {
+    position: 'absolute',
+    left: '11px',
+    color: '#9CA3AF',
+    pointerEvents: 'none',
+  },
+  searchInput: {
+    width: '100%',
+    height: '36px',
+    padding: '0 12px 0 32px',
+    borderRadius: '8px',
+    border: '1px solid #E5E7EB',
+    background: '#fff',
+    fontSize: '13px',
+    outline: 'none',
+    color: '#1F2937',
+  },
+  iconOnlyBtn: {
+    width: '36px',
+    height: '36px',
+    borderRadius: '8px',
+    border: '1px solid #E5E7EB',
+    background: '#fff',
+    color: '#4B5563',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  btnPrimary: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '7px',
+    height: '36px',
+    padding: '0 15px',
+    background: ACCENT,
+    color: '#fff',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  dropdown: {
+    position: 'absolute',
+    top: '42px',
+    right: 0,
+    borderRadius: '10px',
+    padding: '6px',
+    minWidth: '190px',
+    maxHeight: '280px',
+    overflowY: 'auto',
+    zIndex: 20,
+    background: '#fff',
+    border: '1px solid #E5E7EB',
+    boxShadow: '0 10px 24px rgba(17,24,39,0.10)',
+  },
+  dropdownHeader: {
+    fontSize: '11px',
+    fontWeight: 700,
+    color: '#9CA3AF',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    padding: '6px 8px',
+  },
+  checkboxRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '9px',
+    padding: '7px 8px',
+    fontSize: '13px',
+    color: '#374151',
+    borderRadius: '6px',
+    cursor: 'pointer',
+  },
+  exportOption: {
+    display: 'block',
+    width: '100%',
+    textAlign: 'left',
+    padding: '9px 10px',
+    fontSize: '13px',
+    color: '#374151',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+  },
+
+  /* Table */
+  tableCard: {
+    borderRadius: '12px',
+    overflow: 'hidden',
+    background: '#fff',
+    border: '1px solid #ECEDF1',
+  },
+  tableScroll: {
+    overflowX: 'auto',
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    fontSize: '13px',
+  },
+  th: {
+    textAlign: 'left',
+    padding: '11px 16px',
+    background: '#FAFAFB',
+    color: '#9CA3AF',
+    fontWeight: 600,
+    fontSize: '11px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.03em',
+    borderBottom: '1px solid #ECEDF1',
+    whiteSpace: 'nowrap',
+  },
+  td: {
+    padding: '12px 16px',
+    borderBottom: '1px solid #F3F4F6',
+    color: '#374151',
+    whiteSpace: 'nowrap',
+  },
+  dash: { color: '#D1D5DB' },
+  categoryTag: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '6px',
+    fontSize: '12.5px',
+    fontWeight: 600,
+    color: '#4B5563',
+  },
+  categoryDot: {
+    width: '7px',
+    height: '7px',
+    borderRadius: '50%',
+    flexShrink: 0,
+  },
+  conditionBadge: {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: '5px',
+    padding: '3px 9px',
+    borderRadius: '6px',
+    fontSize: '11.5px',
+    fontWeight: 600,
+  },
+  conditionDot: {
+    width: '5px',
+    height: '5px',
+    borderRadius: '50%',
+  },
+  price: { fontWeight: 600, color: '#111827' },
+  assetLink: { fontWeight: 600, color: ACCENT },
+  actionRow: {
+    display: 'flex',
+    gap: '4px',
+    justifyContent: 'flex-end',
+  },
+  iconBtn: {
+    width: '28px',
+    height: '28px',
+    borderRadius: '7px',
+    border: 'none',
+    background: 'transparent',
+    color: '#9CA3AF',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+  },
+  emptyCell: { padding: '56px 20px' },
+  emptyWrap: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '5px',
+  },
+  emptyIcon: {
+    width: '48px',
+    height: '48px',
+    borderRadius: '12px',
+    background: '#F3F4F6',
+    color: '#9CA3AF',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: '6px',
+  },
+  emptyTitle: { fontSize: '14.5px', fontWeight: 700, color: '#1F2937', margin: 0 },
+  emptyText: { fontSize: '13px', color: '#9CA3AF', margin: '0 0 10px' },
+  loadingWrap: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '60vh',
+    gap: '14px',
+  },
+  spinner: {
+    width: '30px',
+    height: '30px',
+    border: '3px solid #E5E7EB',
+    borderTopColor: ACCENT,
+    borderRadius: '50%',
+    animation: 'gl-spin 0.8s linear infinite',
+  },
+  loadingText: { color: '#6B7280', fontSize: '14px', margin: 0 },
+};
+
+const sheet = `
+@keyframes gl-spin { to { transform: rotate(360deg); } }
+
+.gl-row { transition: background 0.12s ease; }
+.gl-row:hover { background: #FAFAFB; }
+.gl-btn-primary { transition: opacity 0.15s ease; }
+.gl-btn-primary:hover { opacity: 0.9; }
+.gl-icon-btn { transition: all 0.12s ease; }
+.gl-icon-view:hover { background: #EFF6FF !important; color: #0284C7 !important; }
+.gl-icon-edit:hover { background: #FFFBEB !important; color: #D97706 !important; }
+.gl-icon-delete:hover { background: #FEF2F2 !important; color: #E11D48 !important; }
+.gl-checkbox-row:hover { background: #F9FAFB; }
+input[type=text]::placeholder { color: #9CA3AF; }
+input:focus { border-color: #4F46E5 !important; box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
+
+@media (max-width: 900px) {
+  .gl-sidebar { display: none; }
+}
+`;
 
 export default InventoryList;
