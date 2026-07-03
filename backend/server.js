@@ -50,14 +50,63 @@ app.get('/api/inventory/types', (req, res) => {
     });
 });
 
+// ✅ UPDATED: Accepts 'columns' array to set column visibility per category
 app.post('/api/inventory/types', (req, res) => {
-    const { name, icon } = req.body;
+    const { name, icon, columns } = req.body;  // columns = array of column keys (e.g., ['name','qty'])
+
+    // Insert the new category
     db.query(
         'INSERT INTO inventory_types (name, icon) VALUES (?, ?)',
-        [name, icon || '💻'],
+        [name, icon || '📦'],
         (err, result) => {
             if (err) return res.status(500).json({ error: err.message });
-            res.status(201).json({ message: 'Type added successfully', id: result.insertId });
+
+            const categoryId = result.insertId;
+
+            // If columns were provided, save them to category_columns
+            if (columns && columns.length > 0) {
+                // All possible column keys (must match frontend ALL_COLUMNS)
+                const allColumns = [
+                    'category', 'name', 'brand', 'model', 'serial_number', 
+                    'specifications', 'quantity', 'price', 'asset', 'asset_code', 
+                    'condition', 'remarks', 'location', 'department', 'email', 
+                    'assigned_to', 'employee_id', 'designation', 'date_of_issuance'
+                ];
+
+                // Build insert values: for each column, is_visible = 1 if in columns array, else 0
+                const insertValues = allColumns.map((key, index) => [
+                    categoryId,
+                    key,
+                    key, // label (store the key as label; frontend will send the actual label)
+                    columns.includes(key) ? 1 : 0,
+                    index
+                ]);
+
+                const insertQuery = `
+                    INSERT INTO category_columns (category_id, column_key, column_label, is_visible, display_order)
+                    VALUES ?
+                `;
+                db.query(insertQuery, [insertValues], (err2) => {
+                    if (err2) {
+                        console.error('❌ Error inserting category columns:', err2);
+                        // Return success for the category but log the error
+                        return res.status(201).json({ 
+                            message: 'Type added successfully, but column settings failed', 
+                            id: categoryId 
+                        });
+                    }
+                    res.status(201).json({ 
+                        message: 'Type added successfully', 
+                        id: categoryId 
+                    });
+                });
+            } else {
+                // No columns provided – default: all visible (no entries in category_columns)
+                res.status(201).json({ 
+                    message: 'Type added successfully', 
+                    id: categoryId 
+                });
+            }
         }
     );
 });
@@ -112,7 +161,8 @@ app.post('/api/inventory/items', (req, res) => {
         quantity, price, asset, asset_code, condition, remarks,
         purchase_date, warranty_until, assigned_to, location, notes,
         issued_by, department, station, assigned_date,
-        employee_id, date_of_issuance, designation
+        employee_id, date_of_issuance, designation,
+        issuance_number, backup_done
     } = req.body;
 
     const query = `
@@ -121,8 +171,9 @@ app.post('/api/inventory/items', (req, res) => {
          quantity, price, asset, asset_code, \`condition\`, remarks,
          purchase_date, warranty_until, assigned_to, location, notes,
          issued_by, department, station, assigned_date,
-         employee_id, date_of_issuance, designation)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         employee_id, date_of_issuance, designation,
+         issuance_number, backup_done)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     const values = [
         type_id,
@@ -148,7 +199,9 @@ app.post('/api/inventory/items', (req, res) => {
         assigned_date || null,
         employee_id || null,
         date_of_issuance || null,
-        designation || null
+        designation || null,
+        issuance_number || null,
+        backup_done ? 1 : 0
     ];
 
     db.query(query, values, (err, result) => {
@@ -181,7 +234,8 @@ app.put('/api/inventory/items/:id', (req, res) => {
         'quantity', 'price', 'asset', 'asset_code', 'condition', 'remarks',
         'purchase_date', 'warranty_until', 'assigned_to', 'location', 'notes',
         'issued_by', 'department', 'station', 'assigned_date',
-        'employee_id', 'date_of_issuance', 'designation'
+        'employee_id', 'date_of_issuance', 'designation',
+        'issuance_number', 'backup_done'
     ];
 
     for (const key of allowedColumns) {
@@ -439,6 +493,114 @@ app.put('/api/service/history/:id', (req, res) => {
   });
 });
 
+// ============================================
+// ITEM RETURN FEATURE
+// ============================================
+
+// Return an item (unassign + log return)
+app.post('/api/inventory/return', (req, res) => {
+  const { item_id, email, backup_done, remarks, returned_by, mobile_number, return_date } = req.body;
+
+  if (!item_id) {
+    return res.status(400).json({ error: 'Item ID is required' });
+  }
+
+  // 1. Clear assignment fields on the item
+  const clearItem = `
+    UPDATE inventory_items SET
+      assigned_to = NULL,
+      designation = NULL,
+      department = NULL,
+      location = NULL,
+      employee_id = NULL,
+      date_of_issuance = NULL,
+      issued_by = NULL,
+      station = NULL,
+      assigned_date = NULL,
+      email = NULL
+    WHERE id = ?
+  `;
+
+  db.query(clearItem, [item_id], (err, result) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (result.affectedRows === 0) return res.status(404).json({ error: 'Item not found' });
+
+    // 2. Insert return record with all fields
+    const insertReturn = `
+      INSERT INTO item_returns (item_id, returned_by, email, backup_done, remarks, mobile_number, return_date)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `;
+    const values = [
+      item_id,
+      returned_by || 'System',
+      email || null,
+      backup_done ? 1 : 0,
+      remarks || null,
+      mobile_number || null,
+      return_date || null
+    ];
+
+    db.query(insertReturn, values, (err2, result2) => {
+      if (err2) return res.status(500).json({ error: err2.message });
+      res.status(201).json({ 
+        message: 'Item returned successfully', 
+        returnId: result2.insertId 
+      });
+    });
+  });
+});
+
+// ============================================
+// CATEGORY COLUMNS MANAGEMENT
+// ============================================
+
+// Get all columns for a category
+app.get('/api/category-columns/:categoryId', (req, res) => {
+    const { categoryId } = req.params;
+    const query = `
+        SELECT * FROM category_columns 
+        WHERE category_id = ? 
+        ORDER BY display_order
+    `;
+    db.query(query, [categoryId], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results);
+    });
+});
+
+// Update column visibility for a category
+app.put('/api/category-columns/:categoryId', (req, res) => {
+    const { categoryId } = req.params;
+    const { columns } = req.body; // Array of { column_key, column_label, is_visible }
+
+    // Delete all existing entries for this category
+    db.query('DELETE FROM category_columns WHERE category_id = ?', [categoryId], (err) => {
+        if (err) return res.status(500).json({ error: err.message });
+
+        if (!columns || columns.length === 0) {
+            return res.json({ message: 'All columns removed' });
+        }
+
+        // Insert new configurations
+        const insertQuery = `
+            INSERT INTO category_columns (category_id, column_key, column_label, is_visible, display_order)
+            VALUES ?
+        `;
+        const values = columns.map((col, index) => [
+            categoryId,
+            col.column_key,
+            col.column_label,
+            col.is_visible ? 1 : 0,
+            index
+        ]);
+
+        db.query(insertQuery, [values], (err2) => {
+            if (err2) return res.status(500).json({ error: err2.message });
+            res.json({ message: 'Columns updated successfully' });
+        });
+    });
+});
+
 // --------------------------------------------
 // START SERVER
 // --------------------------------------------
@@ -460,4 +622,5 @@ app.listen(PORT, () => {
     console.log(`   - POST /api/service/record`);
     console.log(`   - PUT  /api/service/history/:id`);
     console.log(`   - DELETE /api/service/history/:id`);
+    console.log(`   - POST /api/inventory/return`);
 });

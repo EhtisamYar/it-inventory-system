@@ -9,6 +9,7 @@ import ViewItem from './components/ViewItem';
 import EditItem from './components/EditItem';
 import AssetAssignment from './components/AssetAssignment';
 import ServiceMaintenance from './components/ServiceMaintenance';
+import AssetReturns from './components/AssetReturns';
 import './styles/App.css';
 
 function App() {
@@ -29,6 +30,16 @@ function App() {
   const [isItInventory, setIsItInventory] = useState(false);
 
   const API_URL = 'http://localhost:5000';
+
+  // Refresh function to be passed to InventoryList (for "Return" action)
+  const handleRefresh = () => {
+    if (selectedType === 'master') fetchMasterInventory();
+    else if (selectedType === 'it-inventory') fetchItInventory();
+    else if (selectedType === 'assignment') fetchAssignmentItems();
+    else if (selectedType && selectedType !== 'service' && selectedType !== 'returns') {
+      fetchItemsByType(selectedType);
+    }
+  };
 
   useEffect(() => {
     fetchInventoryTypes();
@@ -128,8 +139,14 @@ function App() {
     } else if (typeId === 'assignment') {
       fetchAssignmentItems();
     } else if (typeId === 'service') {
-      // Service page – no inventory fetch needed
       setSelectedType('service');
+      setIsMasterInventory(false);
+      setIsAssignment(false);
+      setIsItInventory(false);
+      setInventoryItems([]);
+      setFilteredItems([]);
+    } else if (typeId === 'returns') {
+      setSelectedType('returns');
       setIsMasterInventory(false);
       setIsAssignment(false);
       setIsItInventory(false);
@@ -211,7 +228,7 @@ function App() {
       if (selectedType === 'master') fetchMasterInventory();
       else if (selectedType === 'assignment') fetchAssignmentItems();
       else if (selectedType === 'it-inventory') fetchItInventory();
-      else if (selectedType && selectedType !== 'master' && selectedType !== 'assignment' && selectedType !== 'it-inventory' && selectedType !== 'service') {
+      else if (selectedType && selectedType !== 'master' && selectedType !== 'assignment' && selectedType !== 'it-inventory' && selectedType !== 'service' && selectedType !== 'returns') {
         fetchItemsByType(selectedType);
       }
       alert('✅ Equipment added successfully!');
@@ -239,7 +256,7 @@ function App() {
       if (selectedType === 'master') fetchMasterInventory();
       else if (selectedType === 'assignment') fetchAssignmentItems();
       else if (selectedType === 'it-inventory') fetchItInventory();
-      else if (selectedType && selectedType !== 'master' && selectedType !== 'assignment' && selectedType !== 'it-inventory' && selectedType !== 'service') {
+      else if (selectedType && selectedType !== 'master' && selectedType !== 'assignment' && selectedType !== 'it-inventory' && selectedType !== 'service' && selectedType !== 'returns') {
         fetchItemsByType(selectedType);
       }
       alert('✅ Equipment updated successfully!');
@@ -320,7 +337,7 @@ function App() {
         if (selectedType === 'master') fetchMasterInventory();
         else if (selectedType === 'assignment') fetchAssignmentItems();
         else if (selectedType === 'it-inventory') fetchItInventory();
-        else if (selectedType && selectedType !== 'master' && selectedType !== 'assignment' && selectedType !== 'it-inventory' && selectedType !== 'service') {
+        else if (selectedType && selectedType !== 'master' && selectedType !== 'assignment' && selectedType !== 'it-inventory' && selectedType !== 'service' && selectedType !== 'returns') {
           fetchItemsByType(selectedType);
         }
         alert('✅ Equipment deleted successfully!');
@@ -329,6 +346,25 @@ function App() {
         alert('❌ Error deleting equipment');
       }
     }
+  };
+
+  // Helper to get category name for per‑column visibility
+  const getCategoryName = () => {
+    if (selectedType === 'master') return 'master';
+    if (selectedType === 'it-inventory') return 'it-inventory';
+    if (selectedType === 'assignment') return 'assignment';
+    if (selectedType === 'service' || selectedType === 'returns') return selectedType;
+    const type = inventoryTypes.find(t => t.id === selectedType);
+    return type ? type.name : 'default';
+  };
+
+  // Helper to get the title for the inventory list
+  const getTitle = () => {
+    if (selectedType === 'master') return 'Master Inventory';
+    if (selectedType === 'it-inventory') return 'IT Inventory (Unassigned)';
+    if (selectedType === 'assignment') return 'Asset Assignment';
+    const type = inventoryTypes.find(t => t.id === selectedType);
+    return type ? type.name : 'Inventory';
   };
 
   return (
@@ -343,6 +379,7 @@ function App() {
           <AddType 
             onClose={() => setShowAddType(false)}
             onAdd={handleAddType}
+            existingTypes={inventoryTypes}   // ✅ Pass existing types for duplicate check & display
           />
         )}
         
@@ -372,6 +409,8 @@ function App() {
 
         {selectedType === 'service' ? (
           <ServiceMaintenance />
+        ) : selectedType === 'returns' ? (
+          <AssetReturns types={inventoryTypes} />
         ) : selectedType === 'assignment' ? (
           <AssetAssignment 
             items={filteredItems}
@@ -393,16 +432,13 @@ function App() {
             onEditItem={handleEditItem}
             searchTerm={searchTerm}
             onSearch={handleSearch}
-            title={
-              selectedType === 'master' 
-                ? 'Master Inventory' 
-                : selectedType === 'it-inventory' 
-                  ? 'IT Inventory (Unassigned)' 
-                  : inventoryTypes.find(t => t.id === selectedType)?.name
-            }
+            title={getTitle()}
             isMaster={selectedType === 'master' || selectedType === 'it-inventory'}
             isItInventory={selectedType === 'it-inventory'}
             types={inventoryTypes}
+            categoryId={selectedType !== 'master' && selectedType !== 'it-inventory' ? selectedType : null}
+            categoryName={getCategoryName()}
+            onRefresh={handleRefresh}
           />
         ) : (
           <Dashboard 

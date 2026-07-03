@@ -1736,3 +1736,11 @@ body {
 .badge-warning { background: #fff3cd; color: #856404; }
 .badge-danger { background: #f8d7da; color: #721c24; }
 .badge-secondary { background: #e2e3e5; color: #383d41; }
+.action-btn.return {
+  background: #fff3e0;
+  color: #e65100;
+}
+.action-btn.return:hover {
+  background: #e65100;
+  color: white;
+}

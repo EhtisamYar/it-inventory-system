@@ -1,5 +1,5 @@
 import React from 'react';
-import { FaHome, FaDatabase, FaClipboardCheck, FaClipboardList } from 'react-icons/fa';
+import { FaHome, FaDatabase, FaClipboardCheck, FaClipboardList, FaUndo } from 'react-icons/fa';
 
 const Sidebar = ({ types, onSelectType, selectedType }) => {
   const allowedCategories = ['Laptops', 'Desktops'];
@@ -47,13 +47,21 @@ const Sidebar = ({ types, onSelectType, selectedType }) => {
           <span className="label">Asset Assignment</span>
         </div>
 
-        {/* NEW: Service & Maintenance */}
         <div 
           className={`sidebar-item ${selectedType === 'service' ? 'active' : ''}`}
           onClick={() => onSelectType('service')}
         >
           <span className="icon"><FaClipboardList /></span>
           <span className="label">Service & Maintenance</span>
+        </div>
+
+        {/* NEW: Asset Returns */}
+        <div 
+          className={`sidebar-item ${selectedType === 'returns' ? 'active' : ''}`}
+          onClick={() => onSelectType('returns')}
+        >
+          <span className="icon"><FaUndo /></span>
+          <span className="label">Asset Returns</span>
         </div>
       </div>
 
@@ -63,5 +71,6 @@ const Sidebar = ({ types, onSelectType, selectedType }) => {
     </div>
   );
 };
+
 
 export default Sidebar;

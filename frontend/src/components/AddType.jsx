@@ -1,20 +1,37 @@
 import React, { useState } from 'react';
 import { FaTimes } from 'react-icons/fa';
 
-// All possible column keys (must match those in InventoryList)
+// ⚠️ Must match the backend's allColumns array in server.js
 const ALL_COLUMNS = [
-  'brand', 'model', 'serial', 'specs', 'qty', 'price',
-  'asset', 'assetCode', 'condition', 'remarks', 'location',
-  'department', 'email', 'assignedTo', 'employeeId',
-  'designation', 'dateOfIssuance'
+  { key: 'name', label: 'Name' },
+  { key: 'brand', label: 'Brand' },
+  { key: 'model', label: 'Model' },
+  { key: 'serial_number', label: 'S/N' },
+  { key: 'specifications', label: 'Specifications' },
+  { key: 'quantity', label: 'Qty' },
+  { key: 'price', label: 'Price' },
+  { key: 'asset', label: 'Asset' },
+  { key: 'asset_code', label: 'Asset Code' },
+  { key: 'condition', label: 'Condition' },
+  { key: 'remarks', label: 'Remarks' },
+  { key: 'location', label: 'Location' },
+  { key: 'department', label: 'Department' },
+  { key: 'email', label: 'Email' },
+  { key: 'assigned_to', label: 'Assigned To' },
+  { key: 'employee_id', label: 'Employee ID' },
+  { key: 'designation', label: 'Designation' },
+  { key: 'date_of_issuance', label: 'Date of Issuance' }
 ];
+
+// Helper to get the column key from the full object
+const COLUMN_KEYS = ALL_COLUMNS.map(col => col.key);
 
 const AddType = ({ onClose, onAdd, existingTypes = [] }) => {
   const [name, setName] = useState('');
   const [icon, setIcon] = useState('💻');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [selectedColumns, setSelectedColumns] = useState(ALL_COLUMNS); // all checked by default
+  const [selectedColumns, setSelectedColumns] = useState(COLUMN_KEYS); // all checked by default
 
   // Pre-defined IT Categories with icons
   const itCategories = [
@@ -69,15 +86,20 @@ const AddType = ({ onClose, onAdd, existingTypes = [] }) => {
     setError('');
     setLoading(true);
 
-    // Save the column preset in localStorage
+    // Save the column preset in localStorage (for quick‑load later)
     const presetKey = `category_preset_${trimmedName}`;
     localStorage.setItem(presetKey, JSON.stringify(selectedColumns));
 
-    await onAdd({ name: trimmedName, icon });
+    // Send the selected columns to the backend
+    await onAdd({ 
+      name: trimmedName, 
+      icon, 
+      columns: selectedColumns  // ✅ send the array of column keys
+    });
     setLoading(false);
     setName('');
     setIcon('💻');
-    setSelectedColumns(ALL_COLUMNS);
+    setSelectedColumns(COLUMN_KEYS);
   };
 
   const toggleColumn = (colKey) => {
@@ -92,7 +114,7 @@ const AddType = ({ onClose, onAdd, existingTypes = [] }) => {
     setName(cat.name);
     setIcon(cat.icon);
     setError('');
-    // Optionally load preset if exists
+    // Load preset if exists
     const presetKey = `category_preset_${cat.name}`;
     const stored = localStorage.getItem(presetKey);
     if (stored) {
@@ -100,6 +122,9 @@ const AddType = ({ onClose, onAdd, existingTypes = [] }) => {
         const parsed = JSON.parse(stored);
         setSelectedColumns(parsed);
       } catch {}
+    } else {
+      // Fallback: all columns visible
+      setSelectedColumns(COLUMN_KEYS);
     }
   };
 
@@ -172,29 +197,13 @@ const AddType = ({ onClose, onAdd, existingTypes = [] }) => {
                 <label>Select Columns to Display for this Category</label>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))', gap: '6px', padding: '8px', background: '#f8f9fa', borderRadius: '6px', maxHeight: '150px', overflowY: 'auto' }}>
                   {ALL_COLUMNS.map(col => (
-                    <label key={col} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
+                    <label key={col.key} style={{ display: 'flex', alignItems: 'center', gap: '6px', fontSize: '13px' }}>
                       <input
                         type="checkbox"
-                        checked={selectedColumns.includes(col)}
-                        onChange={() => toggleColumn(col)}
+                        checked={selectedColumns.includes(col.key)}
+                        onChange={() => toggleColumn(col.key)}
                       />
-                      {col === 'assignedTo' ? 'Assigned To' :
-                       col === 'employeeId' ? 'Employee ID' :
-                       col === 'dateOfIssuance' ? 'Date of Issuance' :
-                       col === 'assetCode' ? 'Asset Code' :
-                       col === 'specs' ? 'Specifications' :
-                       col === 'qty' ? 'Qty' :
-                       col === 'brand' ? 'Brand' :
-                       col === 'model' ? 'Model' :
-                       col === 'serial' ? 'S/N' :
-                       col === 'price' ? 'Price' :
-                       col === 'asset' ? 'Asset' :
-                       col === 'condition' ? 'Condition' :
-                       col === 'remarks' ? 'Remarks' :
-                       col === 'location' ? 'Location' :
-                       col === 'department' ? 'Department' :
-                       col === 'email' ? 'Email' :
-                       col === 'designation' ? 'Designation' : col}
+                      {col.label}
                     </label>
                   ))}
                 </div>

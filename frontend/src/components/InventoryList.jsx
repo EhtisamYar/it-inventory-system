@@ -1,11 +1,15 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  FaPlus, FaTrash, FaSearch, FaDatabase, FaEye, FaEdit, FaColumns
+  FaPlus, FaTrash, FaSearch, FaDatabase, FaEye, FaEdit, FaColumns, FaUndo,
+  FaSave, FaTimes   // <-- added for modal buttons
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import axios from 'axios';
 import ExportDropdown from './ExportDropdown';
+
+const API_URL = 'http://localhost:5000';
 
 const formatPKR = (amount) => {
   if (!amount) return 'Rs. 0';
@@ -22,7 +26,7 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString('en-GB');
 };
 
-// Column definitions – added "Email"
+// ---------- Column definitions (all possible columns) ----------
 const COLUMN_DEFS = {
   category: { label: 'Category', always: false },
   brand: { label: 'Brand', always: false },
@@ -37,24 +41,32 @@ const COLUMN_DEFS = {
   remarks: { label: 'Remarks', always: false },
   location: { label: 'Location', always: false },
   department: { label: 'Department', always: false },
-  email: { label: 'Email', always: false },   // ✅ new
+  email: { label: 'Email', always: false },
   assignedTo: { label: 'Assigned To', always: false },
   employeeId: { label: 'Employee ID', always: false },
   designation: { label: 'Designation', always: false },
   dateOfIssuance: { label: 'Date of Issuance', always: false },
 };
 
-// Category presets (optional)
-const CATEGORY_COLUMN_PRESETS = {
-  'Printers': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
-  'Copiers': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
-  'Scanners': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
-};
+// All possible column keys (for the Manage Columns modal)
+const ALL_COLUMNS = Object.keys(COLUMN_DEFS).map(key => ({
+  key,
+  label: COLUMN_DEFS[key].label
+}));
 
+// Default preset (all columns visible)
 const DEFAULT_VISIBLE = Object.keys(COLUMN_DEFS).reduce((acc, key) => {
   acc[key] = true;
   return acc;
 }, {});
+
+// Optional presets for specific categories (used only when no saved preference exists)
+const CATEGORY_COLUMN_PRESETS = {
+  'Printers': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
+  'Copiers': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
+  'Scanners': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
+  // Add your custom presets here if needed
+};
 
 const InventoryList = ({
   items,
@@ -69,18 +81,43 @@ const InventoryList = ({
   isMaster,
   isItInventory,
   types,
+  onRefresh,
+  categoryId,      // <-- new prop: numeric category ID (for DB storage)
+  categoryName,    // still used for localStorage fallback
 }) => {
   const [activeTab, setActiveTab] = useState(null);
   const [conditionFilter, setConditionFilter] = useState('');
   const [showColumnDropdown, setShowColumnDropdown] = useState(false);
   const dropdownRef = useRef(null);
 
+  // ---------- Manage Columns State ----------
+  const [showManageColumns, setShowManageColumns] = useState(false);
+  const [editingColumns, setEditingColumns] = useState([]);
+  const [loadingColumns, setLoadingColumns] = useState(false);
+
+  // ---------- Return Modal State ----------
+  const [showReturnModal, setShowReturnModal] = useState(false);
+  const [returnItem, setReturnItem] = useState(null);
+  const [returnData, setReturnData] = useState({
+    email: '',
+    backup_done: false,
+    remarks: ''
+  });
+
   const isMasterInventory = isMaster || title === 'Master Inventory' || title === 'IT Inventory (Unassigned)';
   const isTrueMaster = isMaster && !isItInventory;
 
-  // ---------- COLUMN VISIBILITY ----------
-  const getDefaultVisible = () => {
-    const stored = localStorage.getItem('inventory_columns');
+  // ---------- Column Visibility (DB + localStorage fallback) ----------
+  const getStorageKey = () => {
+    if (isMasterInventory) return 'inventory_columns_master';
+    if (isItInventory) return 'inventory_columns_it';
+    const key = categoryName || title || 'default';
+    return `inventory_columns_${key}`;
+  };
+
+  // Load visibility from localStorage (fallback)
+  const loadFromLocalStorage = () => {
+    const stored = localStorage.getItem(getStorageKey());
     if (stored) {
       try {
         const parsed = JSON.parse(stored);
@@ -91,16 +128,168 @@ const InventoryList = ({
         return merged;
       } catch {}
     }
+    // No saved preference → check preset
+    const preset = CATEGORY_COLUMN_PRESETS[categoryName];
+    if (preset) {
+      const presetVis = {};
+      Object.keys(COLUMN_DEFS).forEach(key => {
+        presetVis[key] = preset.includes(key);
+      });
+      return presetVis;
+    }
     return { ...DEFAULT_VISIBLE };
   };
 
-  const [visibleColumns, setVisibleColumns] = useState(getDefaultVisible);
+  const [visibleColumns, setVisibleColumns] = useState(loadFromLocalStorage);
 
+  // ---------- Load from DB if categoryId is provided ----------
+  const loadCategoryColumnsFromDB = async () => {
+    if (!categoryId) return; // no DB for master/IT
+    setLoadingColumns(true);
+    try {
+      const response = await axios.get(`${API_URL}/api/category-columns/${categoryId}`);
+      if (response.data && response.data.length > 0) {
+        // Build visibility object from DB
+        const dbVis = {};
+        Object.keys(COLUMN_DEFS).forEach(key => {
+          const found = response.data.find(col => col.column_key === key);
+          dbVis[key] = found ? found.is_visible === 1 : true;
+        });
+        setVisibleColumns(dbVis);
+        // Also save to localStorage as a backup (optional)
+        localStorage.setItem(getStorageKey(), JSON.stringify(dbVis));
+      } else {
+        // No DB entries – use localStorage fallback
+        const localVis = loadFromLocalStorage();
+        setVisibleColumns(localVis);
+      }
+    } catch (error) {
+      console.error('Error loading category columns from DB:', error);
+      // Fallback to localStorage
+      const localVis = loadFromLocalStorage();
+      setVisibleColumns(localVis);
+    } finally {
+      setLoadingColumns(false);
+    }
+  };
+
+  // Reload when category changes
   useEffect(() => {
-    localStorage.setItem('inventory_columns', JSON.stringify(visibleColumns));
-  }, [visibleColumns]);
+    if (categoryId) {
+      loadCategoryColumnsFromDB();
+    } else {
+      // For master/IT, use localStorage
+      setVisibleColumns(loadFromLocalStorage());
+    }
+    setActiveTab(null);
+  }, [categoryId, categoryName, isMasterInventory, isItInventory]);
 
-  // Apply category preset when tab changes
+  // Save to localStorage whenever visibility changes (backup)
+  useEffect(() => {
+    localStorage.setItem(getStorageKey(), JSON.stringify(visibleColumns));
+  }, [visibleColumns, categoryName, isMasterInventory, isItInventory]);
+
+  // Apply category preset when a sub‑tab is clicked (only for Master view)
+  useEffect(() => {
+    if (activeTab) {
+      const category = categories.find(c => c.id === activeTab);
+      if (category) {
+        const preset = CATEGORY_COLUMN_PRESETS[category.name];
+        if (preset) {
+          const newVisibility = {};
+          Object.keys(COLUMN_DEFS).forEach(key => {
+            newVisibility[key] = preset.includes(key);
+          });
+          setVisibleColumns(newVisibility);
+          localStorage.setItem(getStorageKey(), JSON.stringify(newVisibility));
+        }
+      }
+    }
+  }, [activeTab]);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
+        setShowColumnDropdown(false);
+      }
+    };
+    if (showColumnDropdown) {
+      document.addEventListener('mousedown', handleClickOutside);
+    } else {
+      document.removeEventListener('mousedown', handleClickOutside);
+    }
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [showColumnDropdown]);
+
+  const toggleColumn = (key) => {
+    setVisibleColumns(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  // ---------- Manage Columns: Open modal ----------
+  const openManageColumns = () => {
+    // Build editing list from current visibleColumns
+    const current = ALL_COLUMNS.map(col => ({
+      key: col.key,
+      label: col.label,
+      is_visible: visibleColumns[col.key] !== false
+    }));
+    setEditingColumns(current);
+    setShowManageColumns(true);
+    setShowColumnDropdown(false);
+  };
+
+  const toggleEditColumn = (key) => {
+    setEditingColumns(prev => 
+      prev.map(col => 
+        col.key === key ? { ...col, is_visible: !col.is_visible } : col
+      )
+    );
+  };
+
+  const saveCategoryColumns = async () => {
+    if (!categoryId) return;
+    try {
+      const columnsToSave = editingColumns.map(col => ({
+        column_key: col.key,
+        column_label: col.label,
+        is_visible: col.is_visible !== false
+      }));
+      await axios.put(`${API_URL}/api/category-columns/${categoryId}`, {
+        columns: columnsToSave
+      });
+      // Update visibleColumns from editingColumns
+      const newVis = {};
+      editingColumns.forEach(col => {
+        newVis[col.key] = col.is_visible !== false;
+      });
+      setVisibleColumns(newVis);
+      localStorage.setItem(getStorageKey(), JSON.stringify(newVis));
+      setShowManageColumns(false);
+      alert('✅ Columns updated successfully!');
+    } catch (error) {
+      console.error('Error saving columns:', error);
+      alert('❌ Failed to save columns');
+    }
+  };
+
+  // ---------- Available columns – include assignedTo & designation everywhere ----------
+  const getColumnKeys = () => {
+    const base = [
+      'brand', 'model', 'serial', 'specs', 'qty', 'price',
+      'asset', 'assetCode', 'condition', 'remarks', 'location',
+      'department', 'email',
+      'assignedTo', 'designation'
+    ];
+    if (isMasterInventory) base.unshift('category');
+    if (isTrueMaster) base.push('employeeId', 'dateOfIssuance');
+    return base.filter(key => COLUMN_DEFS[key]);
+  };
+  const availableColumns = getColumnKeys();
+
+  // ---------- Get categories for tabs ----------
   const getCategoriesFromItems = () => {
     const map = {};
     items.forEach(item => {
@@ -130,58 +319,6 @@ const InventoryList = ({
       categories = getCategoriesFromItems();
     }
   }
-
-  // Apply presets (optional)
-  useEffect(() => {
-    if (activeTab) {
-      const category = categories.find(c => c.id === activeTab);
-      if (category) {
-        const preset = CATEGORY_COLUMN_PRESETS[category.name];
-        if (preset) {
-          const newVisibility = {};
-          Object.keys(COLUMN_DEFS).forEach(key => {
-            newVisibility[key] = preset.includes(key);
-          });
-          setVisibleColumns(newVisibility);
-          localStorage.setItem('inventory_columns', JSON.stringify(newVisibility));
-        }
-      }
-    }
-  }, [activeTab, categories]);
-
-  // Close dropdown on outside click
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
-        setShowColumnDropdown(false);
-      }
-    };
-    if (showColumnDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
-    } else {
-      document.removeEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showColumnDropdown]);
-
-  const toggleColumn = (key) => {
-    setVisibleColumns(prev => ({ ...prev, [key]: !prev[key] }));
-  };
-
-  // Available columns for this view
-  const getColumnKeys = () => {
-    const base = [
-      'brand', 'model', 'serial', 'specs', 'qty', 'price',
-      'asset', 'assetCode', 'condition', 'remarks', 'location',
-      'department', 'email'   // ✅ added email
-    ];
-    if (isMasterInventory) base.unshift('category');
-    if (isTrueMaster) base.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
-    return base.filter(key => COLUMN_DEFS[key]);
-  };
-  const availableColumns = getColumnKeys();
 
   // ---------- GROUPING (for export) ----------
   const getCategoryGroups = (allItems) => {
@@ -214,10 +351,10 @@ const InventoryList = ({
       const order = [
         'brand', 'model', 'serial', 'specs', 'qty', 'price',
         'asset', 'assetCode', 'condition', 'remarks', 'location',
-        'department', 'email'   // ✅ added
+        'department', 'email', 'assignedTo', 'designation'
       ];
       if (isTrueMaster) {
-        order.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
+        order.push('employeeId', 'dateOfIssuance');
       }
       order.forEach(key => {
         if (availableColumns.includes(key) && visibleColumns[key]) {
@@ -247,7 +384,7 @@ const InventoryList = ({
           remarks: item.remarks || '',
           location: item.location || '',
           department: item.department || '',
-          email: item.email || '',   // ✅ added
+          email: item.email || '',
           assignedTo: item.assigned_to || '',
           employeeId: item.employee_id || '',
           designation: item.designation || '',
@@ -256,10 +393,10 @@ const InventoryList = ({
         const order = [
           'brand', 'model', 'serial', 'specs', 'qty', 'price',
           'asset', 'assetCode', 'condition', 'remarks', 'location',
-          'department', 'email'   // ✅ added
+          'department', 'email', 'assignedTo', 'designation'
         ];
         if (isTrueMaster) {
-          order.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
+          order.push('employeeId', 'dateOfIssuance');
         }
         order.forEach(key => {
           if (availableColumns.includes(key) && visibleColumns[key]) {
@@ -303,10 +440,10 @@ const InventoryList = ({
     const order = [
       'brand', 'model', 'serial', 'specs', 'qty', 'price',
       'asset', 'assetCode', 'condition', 'remarks', 'location',
-      'department', 'email'   // ✅ added
+      'department', 'email', 'assignedTo', 'designation'
     ];
     if (isTrueMaster) {
-      order.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
+      order.push('employeeId', 'dateOfIssuance');
     }
     order.forEach(key => {
       if (availableColumns.includes(key) && visibleColumns[key]) {
@@ -326,10 +463,10 @@ const InventoryList = ({
         const orderKeys = [
           'brand', 'model', 'serial', 'specs', 'qty', 'price',
           'asset', 'assetCode', 'condition', 'remarks', 'location',
-          'department', 'email'   // ✅ added
+          'department', 'email', 'assignedTo', 'designation'
         ];
         if (isTrueMaster) {
-          orderKeys.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
+          orderKeys.push('employeeId', 'dateOfIssuance');
         }
         const valueMap = {
           brand: item.brand || '',
@@ -344,7 +481,7 @@ const InventoryList = ({
           remarks: item.remarks || '',
           location: item.location || '',
           department: item.department || '',
-          email: item.email || '',   // ✅ added
+          email: item.email || '',
           assignedTo: item.assigned_to || '',
           employeeId: item.employee_id || '',
           designation: item.designation || '',
@@ -388,10 +525,10 @@ const InventoryList = ({
     const order = [
       'brand', 'model', 'serial', 'specs', 'qty', 'price',
       'asset', 'assetCode', 'condition', 'remarks', 'location',
-      'department', 'email'   // ✅ added
+      'department', 'email', 'assignedTo', 'designation'
     ];
     if (isTrueMaster) {
-      order.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
+      order.push('employeeId', 'dateOfIssuance');
     }
     order.forEach(key => {
       if (availableColumns.includes(key) && visibleColumns[key]) {
@@ -414,6 +551,43 @@ const InventoryList = ({
     return badges[condition] || condition;
   };
 
+  // ---------- RETURN MODAL HANDLERS ----------
+  const openReturnModal = (item) => {
+    setReturnItem(item);
+    setReturnData({ email: '', backup_done: false, remarks: '' });
+    setShowReturnModal(true);
+  };
+
+  const handleReturnChange = (e) => {
+    const { name, value, type, checked } = e.target;
+    setReturnData(prev => ({
+      ...prev,
+      [name]: type === 'checkbox' ? checked : value
+    }));
+  };
+
+  const submitReturn = async () => {
+    if (!returnItem) return;
+    try {
+      await axios.post(`${API_URL}/api/inventory/return`, {
+        item_id: returnItem.id,
+        email: returnData.email,
+        backup_done: returnData.backup_done,
+        remarks: returnData.remarks,
+        returned_by: 'User'
+      });
+      alert('Item returned successfully!');
+      setShowReturnModal(false);
+      if (onRefresh) onRefresh();
+      else {
+        window.location.reload();
+      }
+    } catch (error) {
+      console.error('Error returning item:', error);
+      alert('Failed to return item');
+    }
+  };
+
   const renderRowCells = (item, index) => {
     const cells = [];
     cells.push(<td key={`${item.id}-num`}>{index + 1}</td>);
@@ -429,10 +603,10 @@ const InventoryList = ({
     const order = [
       'brand', 'model', 'serial', 'specs', 'qty', 'price',
       'asset', 'assetCode', 'condition', 'remarks', 'location',
-      'department', 'email'   // ✅ added
+      'department', 'email', 'assignedTo', 'designation'
     ];
     if (isTrueMaster) {
-      order.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
+      order.push('employeeId', 'dateOfIssuance');
     }
     const valueMap = {
       brand: item.brand || '-',
@@ -447,7 +621,7 @@ const InventoryList = ({
       remarks: item.remarks || '-',
       location: item.location || '-',
       department: item.department || '-',
-      email: item.email || '-',   // ✅ added
+      email: item.email || '-',
       assignedTo: item.assigned_to || '-',
       employeeId: item.employee_id || '-',
       designation: item.designation || '-',
@@ -470,6 +644,11 @@ const InventoryList = ({
           <button className="action-btn delete" onClick={() => onDeleteItem(item.id)} title="Delete">
             <FaTrash />
           </button>
+          {item.assigned_to && (
+            <button className="action-btn return" onClick={() => openReturnModal(item)} title="Return">
+              <FaUndo /> Return
+            </button>
+          )}
         </div>
       </td>
     );
@@ -496,7 +675,7 @@ const InventoryList = ({
           item.name, item.brand, item.model, item.serial_number,
           item.asset, item.asset_code, item.assigned_to, item.employee_id,
           item.designation, item.location, item.department, item.specifications,
-          item.type_name, item.email   // ✅ added email
+          item.type_name, item.email
         ];
         return fields.some(f => f && f.toLowerCase().includes(term));
       });
@@ -515,7 +694,7 @@ const InventoryList = ({
   const visibleDataCols = availableColumns.filter(key => visibleColumns[key]).length;
   const colSpan = 2 + visibleDataCols;
 
-  if (loading) {
+  if (loading || loadingColumns) {
     return (
       <div className="loading">
         <div className="spinner"></div>
@@ -562,6 +741,12 @@ const InventoryList = ({
               <FaPlus /> Add Equipment
             </button>
           )}
+          {/* Manage Columns – only when a specific category is selected */}
+          {categoryId && (
+            <button className="btn-secondary" onClick={openManageColumns}>
+              <FaColumns /> Manage Columns
+            </button>
+          )}
           <div className="column-toggle-wrapper" ref={dropdownRef}>
             <button
               className="btn-secondary"
@@ -575,7 +760,7 @@ const InventoryList = ({
                   <label key={key} className="column-checkbox">
                     <input
                       type="checkbox"
-                      checked={visibleColumns[key]}
+                      checked={visibleColumns[key] || false}
                       onChange={() => toggleColumn(key)}
                     />
                     {COLUMN_DEFS[key].label}
@@ -590,6 +775,44 @@ const InventoryList = ({
           />
         </div>
       </div>
+
+      {/* Manage Columns Modal */}
+      {showManageColumns && (
+        <div className="modal-overlay" onClick={() => setShowManageColumns(false)}>
+          <div className="modal modal-large" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
+            <div className="modal-header">
+              <h2><FaColumns /> Manage Columns – {title}</h2>
+              <button className="close-btn" onClick={() => setShowManageColumns(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <p style={{ marginBottom: '15px', color: '#666' }}>
+                Check the columns you want to show in this category. Uncheck to hide them.
+              </p>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                {editingColumns.map(col => (
+                  <label key={col.key} style={{ display: 'flex', alignItems: 'center', padding: '6px 10px', background: '#f5f5f5', borderRadius: '4px', cursor: 'pointer' }}>
+                    <input
+                      type="checkbox"
+                      checked={col.is_visible !== false}
+                      onChange={() => toggleEditColumn(col.key)}
+                      style={{ marginRight: '8px' }}
+                    />
+                    <span>{col.label}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+            <div className="form-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '20px' }}>
+              <button className="btn-cancel" onClick={() => setShowManageColumns(false)}>
+                <FaTimes /> Cancel
+              </button>
+              <button className="btn-submit" onClick={saveCategoryColumns}>
+                <FaSave /> Save Columns
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {isMasterInventory && categories.length > 0 && (
         <div className="master-tabs-container">
@@ -654,6 +877,54 @@ const InventoryList = ({
           </tbody>
         </table>
       </div>
+
+      {/* Return Modal */}
+      {showReturnModal && returnItem && (
+        <div className="modal-overlay" onClick={() => setShowReturnModal(false)}>
+          <div className="modal modal-large" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className="modal-header">
+              <h2>Return Asset – {returnItem.name}</h2>
+              <button className="close-btn" onClick={() => setShowReturnModal(false)}>×</button>
+            </div>
+            <div className="modal-body">
+              <div className="form-group">
+                <label>Email</label>
+                <input
+                  type="email"
+                  name="email"
+                  value={returnData.email}
+                  onChange={handleReturnChange}
+                  placeholder="email@domain.com"
+                />
+              </div>
+              <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                <input
+                  type="checkbox"
+                  name="backup_done"
+                  checked={returnData.backup_done}
+                  onChange={handleReturnChange}
+                  id="backupCheck"
+                />
+                <label htmlFor="backupCheck">Backup Done?</label>
+              </div>
+              <div className="form-group">
+                <label>Remarks</label>
+                <textarea
+                  name="remarks"
+                  value={returnData.remarks}
+                  onChange={handleReturnChange}
+                  rows="3"
+                  placeholder="Any notes about the return..."
+                />
+              </div>
+            </div>
+            <div className="form-actions">
+              <button className="btn-cancel" onClick={() => setShowReturnModal(false)}>Cancel</button>
+              <button className="btn-submit" onClick={submitReturn}>Confirm Return</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
