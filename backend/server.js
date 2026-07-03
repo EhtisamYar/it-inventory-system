@@ -601,6 +601,167 @@ app.put('/api/category-columns/:categoryId', (req, res) => {
     });
 });
 
+const multer = require('multer');
+const xlsx = require('xlsx');
+const path = require('path');
+
+// Configure multer for file uploads
+const storage = multer.diskStorage({
+    destination: function (req, file, cb) {
+        cb(null, 'uploads/'); // temporary folder
+    },
+    filename: function (req, file, cb) {
+        cb(null, Date.now() + '-' + file.originalname);
+    }
+});
+const upload = multer({
+    storage: storage,
+    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+    fileFilter: (req, file, cb) => {
+        const ext = path.extname(file.originalname);
+        if (ext === '.xlsx' || ext === '.xls') {
+            cb(null, true);
+        } else {
+            cb(new Error('Only Excel files (.xlsx, .xls) are allowed'), false);
+        }
+    }
+});
+
+// Import Excel endpoint
+app.post('/api/inventory/import/:categoryId', upload.single('file'), async (req, res) => {
+    try {
+        const categoryId = req.params.categoryId;
+        const file = req.file;
+
+        if (!file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        // Read the Excel file
+        const workbook = xlsx.readFile(file.path);
+        const sheetName = workbook.SheetNames[0];
+        const sheet = workbook.Sheets[sheetName];
+        const data = xlsx.utils.sheet_to_json(sheet);
+
+        if (!data || data.length === 0) {
+            return res.status(400).json({ error: 'The file is empty or has no valid data' });
+        }
+
+        // Define column mapping (Excel header → DB column)
+        // You can extend this mapping based on your sheets
+        const columnMapping = {
+            'Name': 'name',
+            'Item': 'name',
+            'Device': 'name',
+            'Model': 'model',
+            'Brand': 'brand',
+            'Brand Name': 'brand',
+            'QTY': 'quantity',
+            'Qty': 'quantity',
+            'Quantity': 'quantity',
+            'Price': 'price',
+            'Value': 'price',
+            'Book Value': 'price',
+            'Asset Code': 'asset_code',
+            'Asset Code ': 'asset_code',
+            'TAG': 'asset_code',
+            'Tags': 'asset_code',
+            'TAGS': 'asset_code',
+            'Location': 'location',
+            'Department': 'department',
+            'User': 'assigned_to',
+            'Assigned To': 'assigned_to',
+            'Serial Number': 'serial_number',
+            'S.No': 'serial_number',
+            'S.NO': 'serial_number',
+            'Remarks': 'remarks',
+            'Status': 'condition',
+            'Condition': 'condition',
+            'Specifications': 'specifications',
+            'Specs': 'specifications',
+            'OS': 'os', // we can add os field? Not in schema, we'll ignore or add to notes.
+            'RAM': 'ram',
+        };
+
+        // Map headers to DB columns
+        const headers = Object.keys(data[0]);
+        const dbColumns = headers.map(h => columnMapping[h] || null).filter(c => c !== null);
+
+        if (dbColumns.length === 0) {
+            return res.status(400).json({ error: 'No recognized columns in the file. Please ensure headers match: Name, Brand, Model, QTY, Price, TAG, Location, etc.' });
+        }
+
+        // Build insert statement dynamically
+        const insertColumns = ['type_id', ...dbColumns];
+        const placeholders = insertColumns.map(() => '?').join(', ');
+        const columnsString = insertColumns.map(c => `\`${c}\``).join(', ');
+
+        const insertQuery = `INSERT IGNORE INTO inventory_items (${columnsString}) VALUES (${placeholders})`;
+
+        let insertedCount = 0;
+        let skippedCount = 0;
+
+        // Process each row
+        for (const row of data) {
+            const values = [];
+            values.push(categoryId); // type_id
+            for (const col of dbColumns) {
+                // Try to find the original header that maps to this DB column
+                const header = Object.keys(columnMapping).find(h => columnMapping[h] === col);
+                let cellValue = row[header] !== undefined ? row[header] : null;
+
+                // Clean up strings, convert empty to null
+                if (typeof cellValue === 'string') {
+                    cellValue = cellValue.trim();
+                    if (cellValue === '') cellValue = null;
+                }
+
+                // Handle numbers (prices)
+                if (col === 'price' && typeof cellValue === 'string') {
+                    cellValue = parseFloat(cellValue.replace(/,/g, ''));
+                    if (isNaN(cellValue)) cellValue = null;
+                }
+
+                values.push(cellValue);
+            }
+
+            // Execute insert
+            await new Promise((resolve, reject) => {
+                db.query(insertQuery, values, (err, result) => {
+                    if (err) {
+                        // If error, log and skip
+                        console.error('Insert error:', err);
+                        skippedCount++;
+                        resolve();
+                    } else {
+                        if (result.affectedRows > 0) {
+                            insertedCount++;
+                        } else {
+                            skippedCount++;
+                        }
+                        resolve();
+                    }
+                });
+            });
+        }
+
+        // Clean up uploaded file
+        const fs = require('fs');
+        fs.unlinkSync(file.path);
+
+        res.json({
+            message: 'Import completed',
+            totalRows: data.length,
+            inserted: insertedCount,
+            skipped: skippedCount
+        });
+
+    } catch (error) {
+        console.error('Import error:', error);
+        res.status(500).json({ error: error.message });
+    }
+});
+
 // --------------------------------------------
 // START SERVER
 // --------------------------------------------

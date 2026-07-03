@@ -1,11 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   FaPlus, FaTrash, FaSearch, FaEye, FaEdit, FaColumns, FaTimes, FaInbox,
-  FaChevronDown, FaLayerGroup, FaFileExport
+  FaChevronDown, FaLayerGroup, FaFileExport, FaFileExcel  // ← added FaFileExcel
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
+import ImportExcel from './ImportExcel';  // ← new import
 
 const formatPKR = (amount) => {
   if (!amount) return 'Rs 0';
@@ -42,8 +43,6 @@ const COLUMN_DEFS = {
   designation: { label: 'Designation', always: false },
   dateOfIssuance: { label: 'Date of Issuance', always: false },
 };
-
-
 
 const CATEGORY_COLUMN_PRESETS = {
   'Printers': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
@@ -84,13 +83,18 @@ const InventoryList = ({
   isMaster,
   isItInventory,
   types,
+  categoryId,      // ← new: to pass to import modal
+  onRefresh,       // ← new: to refresh after import
 }) => {
   const [activeTab, setActiveTab] = useState(null);
   const [conditionFilter, setConditionFilter] = useState('');
   const [showColumnDropdown, setShowColumnDropdown] = useState(false);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
+  const [showImportDropdown, setShowImportDropdown] = useState(false);  // ← new
+  const [showImportExcel, setShowImportExcel] = useState(false);        // ← new
   const columnRef = useRef(null);
   const exportRef = useRef(null);
+  const importRef = useRef(null);  // ← new
 
   const isMasterInventory = isMaster || title === 'Master Inventory' || title === 'IT Inventory (Unassigned)';
   const isTrueMaster = isMaster && !isItInventory;
@@ -176,6 +180,9 @@ const InventoryList = ({
       }
       if (exportRef.current && !exportRef.current.contains(event.target)) {
         setShowExportDropdown(false);
+      }
+      if (importRef.current && !importRef.current.contains(event.target)) {  // ← new
+        setShowImportDropdown(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -570,6 +577,7 @@ const InventoryList = ({
                 )}
               </div>
 
+              {/* Export dropdown */}
               <div style={{ position: 'relative' }} ref={exportRef}>
                 <button style={styles.iconOnlyBtn} onClick={() => setShowExportDropdown(!showExportDropdown)} title="Export">
                   <FaFileExport size={13} />
@@ -578,6 +586,23 @@ const InventoryList = ({
                   <div style={{ ...styles.dropdown, minWidth: '150px' }}>
                     <button style={styles.exportOption} onClick={handleExportExcel}>Export as Excel</button>
                     <button style={styles.exportOption} onClick={handleExportPDF}>Export as PDF</button>
+                  </div>
+                )}
+              </div>
+
+              {/* ===== NEW: Import dropdown ===== */}
+              <div style={{ position: 'relative' }} ref={importRef}>
+                <button style={styles.iconOnlyBtn} onClick={() => setShowImportDropdown(!showImportDropdown)} title="Import">
+                  <FaFileExcel size={13} />
+                </button>
+                {showImportDropdown && (
+                  <div style={{ ...styles.dropdown, minWidth: '150px' }}>
+                    <button style={styles.exportOption} onClick={() => {
+                      setShowImportDropdown(false);
+                      setShowImportExcel(true);
+                    }}>
+                      Import Excel
+                    </button>
                   </div>
                 )}
               </div>
@@ -623,9 +648,24 @@ const InventoryList = ({
           </div>
         </main>
       </div>
+
+      {/* ===== Import Excel Modal ===== */}
+      {showImportExcel && (
+        <ImportExcel
+          categoryId={categoryId}
+          categories={categories}   // pass categories for dropdown (if no categoryId)
+          onClose={() => setShowImportExcel(false)}
+          onSuccess={() => {
+            if (onRefresh) onRefresh();
+            else window.location.reload();
+          }}
+        />
+      )}
     </div>
   );
 };
+
+
 
 const styles = {
   page: {

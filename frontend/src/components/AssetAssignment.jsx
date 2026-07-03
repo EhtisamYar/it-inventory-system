@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { 
-  FaClipboardCheck, FaSearch, FaPlus, FaPrint, FaEye, FaEdit, FaTrash, FaUndo, FaFilter, FaColumns
+  FaClipboardCheck, FaSearch, FaPlus, FaPrint, FaEye, FaEdit, FaTrash, FaUndo, 
+  FaColumns, FaFileExport, FaLayerGroup, FaInbox
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -13,7 +14,7 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString('en-GB');
 };
 
-// Column definitions – added email
+// All column definitions (for assignment view)
 const COLUMN_DEFS = {
   category: { label: 'Category', always: false },
   equipment: { label: 'Equipment', always: false },
@@ -27,24 +28,29 @@ const COLUMN_DEFS = {
   employeeId: { label: 'Employee ID', always: false },
   designation: { label: 'Designation', always: false },
   dateOfIssuance: { label: 'Date of Issuance', always: false },
-  email: { label: 'Email', always: false },   // ✅ added
+  email: { label: 'Email', always: false },
 };
 
-const DEFAULT_VISIBLE = {
-  category: true,
-  equipment: true,
-  brand: true,
-  model: true,
-  serial: true,
-  asset: true,
-  assignedTo: true,
-  department: true,
-  location: true,
-  employeeId: true,
-  designation: true,
-  dateOfIssuance: true,
-  email: true,   // ✅ added
+const DEFAULT_VISIBLE = Object.keys(COLUMN_DEFS).reduce((acc, key) => {
+  acc[key] = true;
+  return acc;
+}, {});
+
+// ---------- Style constants (matching InventoryList) ----------
+const ACCENT = '#4F46E5';
+const INK = '#14161F';
+const CATEGORY_TINTS = ['#4F46E5', '#0D9488', '#B45309', '#BE185D', '#0369A1', '#4D7C0F', '#7C3AED', '#C2410C'];
+const getTint = (index) => CATEGORY_TINTS[index % CATEGORY_TINTS.length];
+
+const CONDITION_STYLES = {
+  New: { bg: '#ECFDF5', text: '#047857', dot: '#10B981' },
+  Refurbed: { bg: '#EFF6FF', text: '#1D4ED8', dot: '#3B82F6' },
+  Damaged: { bg: '#FEF2F2', text: '#B91C1C', dot: '#EF4444' },
+  Used: { bg: '#F9FAFB', text: '#4B5563', dot: '#9CA3AF' },
+  Condemned: { bg: '#FEF2F2', text: '#7F1D1D', dot: '#7F1D1D' },
 };
+
+const CONDITIONS = ['New', 'Refurbed', 'Damaged', 'Used', 'Condemned'];
 
 const AssetAssignment = ({ 
   items, 
@@ -56,6 +62,7 @@ const AssetAssignment = ({
   onReturn,
   types = [] 
 }) => {
+  // ---------- Local state ----------
   const [searchTerm, setSearchTerm] = useState('');
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showVoucherModal, setShowVoucherModal] = useState(false);
@@ -66,8 +73,11 @@ const AssetAssignment = ({
   const [modalCategoryFilter, setModalCategoryFilter] = useState('all');
   const printRef = useRef();
   const [showColumnDropdown, setShowColumnDropdown] = useState(false);
+  const [showExportDropdown, setShowExportDropdown] = useState(false);
   const dropdownRef = useRef(null);
+  const exportRef = useRef(null);
   const [activeTab, setActiveTab] = useState(null);
+  const [conditionFilter, setConditionFilter] = useState('');
 
   const [voucherData, setVoucherData] = useState({
     issued_by: '',
@@ -77,7 +87,7 @@ const AssetAssignment = ({
     employee_id: '',
     designation: '',
     date_of_issuance: new Date().toISOString().split('T')[0],
-    email: ''   // ✅ added
+    email: ''
   });
 
   const [editData, setEditData] = useState({
@@ -89,7 +99,7 @@ const AssetAssignment = ({
     employee_id: '',
     designation: '',
     date_of_issuance: '',
-    email: ''   // ✅ added
+    email: ''
   });
 
   // ---------- Column Visibility ----------
@@ -120,28 +130,25 @@ const AssetAssignment = ({
 
   const availableColumns = Object.keys(COLUMN_DEFS);
 
-  // Close dropdown on outside click
+  // Close dropdowns on outside click
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (dropdownRef.current && !dropdownRef.current.contains(event.target)) {
         setShowColumnDropdown(false);
       }
+      if (exportRef.current && !exportRef.current.contains(event.target)) {
+        setShowExportDropdown(false);
+      }
     };
-    if (showColumnDropdown) {
-      document.addEventListener('mousedown', handleClickOutside);
-    } else {
-      document.removeEventListener('mousedown', handleClickOutside);
-    }
-    return () => {
-      document.removeEventListener('mousedown', handleClickOutside);
-    };
-  }, [showColumnDropdown]);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // ---------- Split items ----------
   const assignedItems = items.filter(item => item.assigned_to && item.assigned_to.trim() !== '');
   const unassignedItems = items.filter(item => !item.assigned_to || item.assigned_to.trim() === '');
 
-  // ---------- Categories for tabs ----------
+  // ---------- Categories for sidebar ----------
   const getCategoryGroups = (itemsList) => {
     const groups = {};
     itemsList.forEach(item => {
@@ -151,23 +158,33 @@ const AssetAssignment = ({
           id: key,
           name: item.type_name || 'Uncategorized',
           icon: item.type_icon || '📦',
-          items: [],
+          count: 0,
         };
       }
-      groups[key].items.push(item);
+      groups[key].count += 1;
     });
     return Object.values(groups).sort((a, b) => a.name.localeCompare(b.name));
   };
 
   const categoryGroups = getCategoryGroups(assignedItems);
 
-  // ---------- Filter assigned items by tab ----------
+  // Map tints to categories
+  const categoryTintMap = {};
+  categoryGroups.forEach((cat, idx) => {
+    categoryTintMap[cat.id] = getTint(idx);
+  });
+
+  // ---------- Filter assigned items ----------
   const getFilteredAssigned = () => {
     let filtered = assignedItems;
     if (activeTab) {
       filtered = filtered.filter(item => item.type_id === activeTab);
     }
-    // Search filter
+    if (conditionFilter) {
+      filtered = conditionFilter === 'empty'
+        ? filtered.filter(item => !item.condition || item.condition === '')
+        : filtered.filter(item => item.condition === conditionFilter);
+    }
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter(item =>
@@ -178,7 +195,7 @@ const AssetAssignment = ({
         (item.department && item.department.toLowerCase().includes(term)) ||
         (item.employee_id && item.employee_id.toLowerCase().includes(term)) ||
         (item.designation && item.designation.toLowerCase().includes(term)) ||
-        (item.email && item.email.toLowerCase().includes(term))   // ✅ added
+        (item.email && item.email.toLowerCase().includes(term))
       );
     }
     return filtered;
@@ -204,7 +221,7 @@ const AssetAssignment = ({
     return searchMatch && conditionMatch && categoryMatch;
   });
 
-  // ---------- Export (Excel/PDF) – include email ----------
+  // ---------- Export (Excel/PDF) ----------
   const getExportData = () => {
     const headers = [];
     const dataKeys = [];
@@ -246,6 +263,7 @@ const AssetAssignment = ({
   };
 
   const handleExportExcel = () => {
+    setShowExportDropdown(false);
     const { headers, data } = getExportData();
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(data, { header: headers });
@@ -286,6 +304,7 @@ const AssetAssignment = ({
   };
 
   const handleExportPDF = () => {
+    setShowExportDropdown(false);
     const doc = new jsPDF('landscape', 'mm', 'a4');
     doc.setFont('helvetica');
     const { headers, data } = getExportData();
@@ -336,7 +355,7 @@ const AssetAssignment = ({
         body: tableData,
         startY: yAfterTitle,
         styles: { fontSize: 8, font: 'helvetica' },
-        headStyles: { fillColor: [41, 128, 185], font: 'helvetica' },
+        headStyles: { fillColor: [79, 70, 229], font: 'helvetica' },
         margin: { left: 10, right: 10 },
       });
       return doc.lastAutoTable.finalY + 10;
@@ -350,7 +369,6 @@ const AssetAssignment = ({
     if (groups.length === 0) {
       doc.text('No assigned assets', 14, 15);
     }
-
     doc.save('Asset_Assignment.pdf');
   };
 
@@ -516,172 +534,243 @@ const AssetAssignment = ({
     win.document.close();
   };
 
+  // ---------- Render Helpers (matching InventoryList) ----------
+  const getConditionBadge = (condition) => {
+    if (!condition) return <span style={{ color: '#D1D5DB' }}>-</span>;
+    const c = CONDITION_STYLES[condition];
+    if (!c) return condition;
+    return (
+      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '5px', padding: '3px 9px', borderRadius: '6px', background: c.bg, color: c.text, fontSize: '11.5px', fontWeight: 600 }}>
+        <span style={{ width: '5px', height: '5px', borderRadius: '50%', background: c.dot }} />
+        {condition}
+      </span>
+    );
+  };
+
+  const renderHeaders = () => {
+    const headers = [<th key="#" style={styles.th}>#</th>];
+    const order = ['category', 'equipment', 'brand', 'model', 'serial', 'asset', 'assignedTo', 'department', 'location', 'employeeId', 'designation', 'dateOfIssuance', 'email'];
+    order.forEach(key => {
+      if (visibleColumns[key]) {
+        headers.push(<th key={key} style={styles.th}>{COLUMN_DEFS[key].label}</th>);
+      }
+    });
+    headers.push(<th key="actions" style={{ ...styles.th, textAlign: 'right' }}>Actions</th>);
+    return headers;
+  };
+
+  const renderRowCells = (item, index) => {
+    const cells = [<td key={`${item.id}-num`} style={{ ...styles.td, color: '#C1C4CC' }}>{index + 1}</td>];
+    const order = ['category', 'equipment', 'brand', 'model', 'serial', 'asset', 'assignedTo', 'department', 'location', 'employeeId', 'designation', 'dateOfIssuance', 'email'];
+    const tint = categoryTintMap[item.type_id] || '#6B7280';
+    const dash = <span style={{ color: '#D1D5DB' }}>-</span>;
+    const valueMap = {
+      category: <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 600, color: '#4B5563' }}>
+                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: tint }} />
+                  {item.type_name}
+                </span>,
+      equipment: <strong>{item.name}</strong>,
+      brand: item.brand || dash,
+      model: item.model || dash,
+      serial: item.serial_number || dash,
+      asset: item.asset || dash,
+      assignedTo: <strong>{item.assigned_to || dash}</strong>,
+      department: item.department || dash,
+      location: item.location || dash,
+      employeeId: item.employee_id || dash,
+      designation: item.designation || dash,
+      dateOfIssuance: formatDate(item.date_of_issuance),
+      email: item.email || dash,
+    };
+    order.forEach(key => {
+      if (visibleColumns[key]) {
+        cells.push(<td key={`${item.id}-${key}`} style={styles.td}>{valueMap[key]}</td>);
+      }
+    });
+    cells.push(
+      <td key={`${item.id}-actions`} style={{ ...styles.td, textAlign: 'right' }}>
+        <div style={{ display: 'flex', gap: '4px', justifyContent: 'flex-end' }}>
+          <button className="gl-icon-btn gl-icon-view" style={styles.iconBtn} onClick={() => onView && onView(item)} title="View">
+            <FaEye size={12} />
+          </button>
+          <button className="gl-icon-btn gl-icon-edit" style={styles.iconBtn} onClick={() => openEditModal(item)} title="Edit">
+            <FaEdit size={12} />
+          </button>
+          <button className="gl-icon-btn gl-icon-delete" style={styles.iconBtn} onClick={() => onUnassign && onUnassign(item.id)} title="Unassign">
+            <FaTrash size={12} />
+          </button>
+          <button className="gl-icon-btn" style={{ ...styles.iconBtn, color: '#B45309' }} onClick={() => onReturn && onReturn(item.id)} title="Return">
+            <FaUndo size={12} />
+          </button>
+          <button className="gl-icon-btn" style={{ ...styles.iconBtn, color: '#0D9488' }} onClick={() => openVoucher(item)} title="Voucher">
+            <FaPrint size={12} />
+          </button>
+        </div>
+      </td>
+    );
+    return cells;
+  };
+
   if (loading) {
     return (
-      <div className="loading">
-        <div className="spinner"></div>
-        <p>Loading assets...</p>
+      <div style={styles.page}>
+        <div style={styles.loadingWrap}>
+          <div style={styles.spinner} />
+          <p style={styles.loadingText}>Loading assignments…</p>
+        </div>
+        <style>{sheet}</style>
       </div>
     );
   }
 
   return (
-    <div className="inventory-list">
-      <div className="list-header">
-        <h2>
-          <FaClipboardCheck /> Asset Assignment
-          <span className="count">({filteredAssigned.length} assigned)</span>
-        </h2>
-        <div className="actions">
-          <div className="search-box">
-            <FaSearch className="search-icon" />
-            <input
-              type="text"
-              placeholder="Search assigned assets..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-            />
+    <div style={styles.page}>
+      <style>{sheet}</style>
+      <div style={styles.shell}>
+        {/* Sidebar */}
+        <aside style={styles.sidebar}>
+          <div style={styles.sidebarHeader}>
+            <FaLayerGroup size={12} color="#9CA3AF" />
+            <span>Categories</span>
           </div>
-          <button className="btn-primary" onClick={openAssignModal}>
-            <FaPlus /> Assign New Asset
-          </button>
-          <div className="column-toggle-wrapper" ref={dropdownRef}>
+          <nav style={styles.navList}>
             <button
-              className="btn-secondary"
-              onClick={() => setShowColumnDropdown(!showColumnDropdown)}
-            >
-              <FaColumns /> Columns
-            </button>
-            {showColumnDropdown && (
-              <div className="column-dropdown">
-                {availableColumns.map(key => (
-                  <label key={key} className="column-checkbox">
-                    <input
-                      type="checkbox"
-                      checked={visibleColumns[key]}
-                      onChange={() => toggleColumn(key)}
-                    />
-                    {COLUMN_DEFS[key].label}
-                  </label>
-                ))}
-              </div>
-            )}
-          </div>
-          <ExportDropdown
-            onExportExcel={handleExportExcel}
-            onExportPDF={handleExportPDF}
-          />
-        </div>
-      </div>
-
-      {/* Category Tabs */}
-      {categoryGroups.length > 0 && (
-        <div className="master-tabs-container">
-          <div className="master-tabs">
-            <button
-              className={`master-tab ${!activeTab ? 'active' : ''}`}
               onClick={() => setActiveTab(null)}
+              style={{ ...styles.navItem, ...(!activeTab ? styles.navItemActive : {}) }}
             >
-              <span className="tab-icon">📋</span>
-              <span className="tab-label">All Items</span>
-              <span className="tab-badge">{filteredAssigned.length}</span>
+              <span style={styles.navLabel}>All items</span>
+              <span style={{ ...styles.navCount, ...(!activeTab ? styles.navCountActive : {}) }}>{assignedItems.length}</span>
             </button>
-            {categoryGroups.map(cat => (
+            {categoryGroups.map(cat => {
+              const tint = categoryTintMap[cat.id];
+              const isActive = activeTab === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setActiveTab(isActive ? null : cat.id)}
+                  style={{ ...styles.navItem, ...(isActive ? styles.navItemActive : {}) }}
+                >
+                  <span style={styles.navLabel}>
+                    <span style={{ ...styles.navDot, background: isActive ? '#fff' : tint }} />
+                    {cat.name}
+                  </span>
+                  <span style={{ ...styles.navCount, ...(isActive ? styles.navCountActive : {}) }}>{cat.count}</span>
+                </button>
+              );
+            })}
+          </nav>
+          <div style={styles.sidebarDivider} />
+          <div style={styles.sidebarHeader}>Condition</div>
+          <div style={styles.filterList}>
+            <button
+              onClick={() => setConditionFilter('')}
+              style={{ ...styles.filterItem, ...(!conditionFilter ? styles.filterItemActive : {}) }}
+            >
+              Any
+            </button>
+            {CONDITIONS.map(c => (
               <button
-                key={cat.id}
-                className={`master-tab ${activeTab === cat.id ? 'active' : ''}`}
-                onClick={() => setActiveTab(cat.id)}
+                key={c}
+                onClick={() => setConditionFilter(conditionFilter === c ? '' : c)}
+                style={{ ...styles.filterItem, ...(conditionFilter === c ? styles.filterItemActive : {}) }}
               >
-                <span className="tab-icon">{cat.icon || '📦'}</span>
-                <span className="tab-label">{cat.name}</span>
-                <span className="tab-badge">{cat.items.length}</span>
+                <span style={{ ...styles.filterDot, background: CONDITION_STYLES[c]?.dot || '#9CA3AF' }} />
+                {c}
               </button>
             ))}
           </div>
-        </div>
-      )}
+        </aside>
 
-      {activeTab && (
-        <div className="active-category-label">
-          Showing category: <strong>{categoryGroups.find(c => c.id === activeTab)?.name || ''}</strong>
-          <span className="count">({filteredAssigned.length} items)</span>
-          <button className="clear-filter" onClick={() => setActiveTab(null)}>
-            ✕ Clear Filter
-          </button>
-        </div>
-      )}
+        {/* Main content */}
+        <main style={styles.main}>
+          <div style={styles.mainHeader}>
+            <div>
+              <h1 style={styles.listTitle}>
+                {activeTab ? categoryGroups.find(c => c.id === activeTab)?.name || 'Category' : 'Asset Assignment'}
+              </h1>
+              <p style={styles.titleSub}>{filteredAssigned.length} of {assignedItems.length} assigned</p>
+            </div>
+            <div style={styles.headerActions}>
+              <div style={styles.searchBox}>
+                <FaSearch style={styles.searchIcon} size={12} />
+                <input
+                  type="text"
+                  placeholder="Search assigned…"
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                  style={styles.searchInput}
+                />
+              </div>
 
-      <div className="items-table">
-        <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              {visibleColumns.category && <th>Category</th>}
-              {visibleColumns.equipment && <th>Equipment</th>}
-              {visibleColumns.brand && <th>Brand</th>}
-              {visibleColumns.model && <th>Model</th>}
-              {visibleColumns.serial && <th>S/N</th>}
-              {visibleColumns.asset && <th>Asset</th>}
-              {visibleColumns.assignedTo && <th>Assigned To</th>}
-              {visibleColumns.department && <th>Department</th>}
-              {visibleColumns.location && <th>Location</th>}
-              {visibleColumns.employeeId && <th>Employee ID</th>}
-              {visibleColumns.designation && <th>Designation</th>}
-              {visibleColumns.dateOfIssuance && <th>Date of Issuance</th>}
-              {visibleColumns.email && <th>Email</th>}   {/* ✅ added */}
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredAssigned.length === 0 ? (
-              <tr>
-                <td colSpan="100" className="empty-state">
-                  <div className="empty-icon">📭</div>
-                  <h3>No Assigned Assets</h3>
-                  <p>Click "Assign New Asset" to assign equipment to someone.</p>
-                </td>
-              </tr>
-            ) : (
-              filteredAssigned.map((item, idx) => (
-                <tr key={item.id}>
-                  <td>{idx + 1}</td>
-                  {visibleColumns.category && <td><span className="category-tag">{item.type_icon || '📦'} {item.type_name}</span></td>}
-                  {visibleColumns.equipment && <td><strong>{item.name}</strong></td>}
-                  {visibleColumns.brand && <td>{item.brand || '-'}</td>}
-                  {visibleColumns.model && <td>{item.model || '-'}</td>}
-                  {visibleColumns.serial && <td style={{ fontFamily: 'monospace', fontSize: '12px' }}>{item.serial_number || '-'}</td>}
-                  {visibleColumns.asset && <td>{item.asset || '-'}</td>}
-                  {visibleColumns.assignedTo && <td><strong>{item.assigned_to}</strong></td>}
-                  {visibleColumns.department && <td>{item.department || '-'}</td>}
-                  {visibleColumns.location && <td>{item.location || '-'}</td>}
-                  {visibleColumns.employeeId && <td>{item.employee_id || '-'}</td>}
-                  {visibleColumns.designation && <td>{item.designation || '-'}</td>}
-                  {visibleColumns.dateOfIssuance && <td>{formatDate(item.date_of_issuance)}</td>}
-                  {visibleColumns.email && <td>{item.email || '-'}</td>}   {/* ✅ added */}
-                  <td>
-                    <div className="action-buttons">
-                      <button className="action-btn view" onClick={() => onView(item)} title="View">
-                        <FaEye />
-                      </button>
-                      <button className="action-btn edit" onClick={() => openEditModal(item)} title="Edit">
-                        <FaEdit />
-                      </button>
-                      <button className="action-btn delete" onClick={() => onUnassign(item.id)} title="Unassign">
-                        <FaTrash />
-                      </button>
-                      <button className="action-btn return" onClick={() => onReturn(item.id)} title="Return">
-                        <FaUndo />
-                      </button>
-                      <button className="action-btn voucher" onClick={() => openVoucher(item)} title="Voucher">
-                        <FaPrint />
-                      </button>
-                    </div>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+              {/* Columns dropdown */}
+              <div style={{ position: 'relative' }} ref={dropdownRef}>
+                <button style={styles.iconOnlyBtn} onClick={() => setShowColumnDropdown(!showColumnDropdown)} title="Columns">
+                  <FaColumns size={13} />
+                </button>
+                {showColumnDropdown && (
+                  <div style={styles.dropdown}>
+                    <div style={styles.dropdownHeader}>Show columns</div>
+                    {availableColumns.map(key => (
+                      <label key={key} className="gl-checkbox-row" style={styles.checkboxRow}>
+                        <input
+                          type="checkbox"
+                          checked={visibleColumns[key]}
+                          onChange={() => toggleColumn(key)}
+                          style={{ accentColor: ACCENT }}
+                        />
+                        {COLUMN_DEFS[key].label}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Export dropdown */}
+              <div style={{ position: 'relative' }} ref={exportRef}>
+                <button style={styles.iconOnlyBtn} onClick={() => setShowExportDropdown(!showExportDropdown)} title="Export">
+                  <FaFileExport size={13} />
+                </button>
+                {showExportDropdown && (
+                  <div style={{ ...styles.dropdown, minWidth: '150px' }}>
+                    <button style={styles.exportOption} onClick={handleExportExcel}>Export as Excel</button>
+                    <button style={styles.exportOption} onClick={handleExportPDF}>Export as PDF</button>
+                  </div>
+                )}
+              </div>
+
+              <button className="gl-btn-primary" style={styles.btnPrimary} onClick={openAssignModal}>
+                <FaPlus size={12} /> Assign New
+              </button>
+            </div>
+          </div>
+
+          <div style={styles.tableCard}>
+            <div style={styles.tableScroll}>
+              <table style={styles.table}>
+                <thead>
+                  <tr>{renderHeaders()}</tr>
+                </thead>
+                <tbody>
+                  {filteredAssigned.length === 0 ? (
+                    <tr>
+                      <td colSpan={100} style={styles.emptyCell}>
+                        <div style={styles.emptyWrap}>
+                          <div style={styles.emptyIcon}><FaInbox size={18} /></div>
+                          <h3 style={styles.emptyTitle}>No Assigned Assets</h3>
+                          <p style={styles.emptyText}>Click "Assign New" to assign an asset.</p>
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredAssigned.map((item, idx) => (
+                      <tr key={item.id} className="gl-row">{renderRowCells(item, idx)}</tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </main>
       </div>
 
       {/* Assignment Modal */}
@@ -692,69 +781,62 @@ const AssetAssignment = ({
               <h2>📄 Issue / Receipt Voucher</h2>
               <button className="close-btn" onClick={closeAssignModal}>×</button>
             </div>
-            <div className="modal-body">
+            <div className="modal-body" style={{ padding: '20px' }}>
               {!selectedItem ? (
                 <>
-                  <p style={{ marginBottom: '16px' }}>Select an unassigned asset from the list below:</p>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '12px', marginBottom: '12px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontSize: '14px', fontWeight: '500' }}>Category:</span>
-                      <select
-                        value={modalCategoryFilter}
-                        onChange={(e) => setModalCategoryFilter(e.target.value)}
-                        style={{ padding: '6px 12px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '14px', background: 'white', minWidth: '140px' }}
-                      >
-                        <option value="all">All Categories</option>
-                        {types.filter(t => unassignedItems.some(item => item.type_id === t.id)).map(cat => (
-                          <option key={cat.id} value={String(cat.id)}>{cat.icon || '📦'} {cat.name}</option>
-                        ))}
-                      </select>
-                    </div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                      <span style={{ fontSize: '14px', fontWeight: '500' }}>Condition:</span>
-                      <select
-                        value={modalConditionFilter}
-                        onChange={(e) => setModalConditionFilter(e.target.value)}
-                        style={{ padding: '6px 12px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '14px', background: 'white', minWidth: '120px' }}
-                      >
-                        <option value="">All</option>
-                        <option value="New">🆕 New</option>
-                        <option value="Refurbed">🔄 Refurbed</option>
-                        <option value="Damaged">❌ Damaged</option>
-                        <option value="Used">📦 Used</option>
-                        <option value="Condemned">⛔ Condemned</option>
-                      </select>
-                    </div>
-                    <span style={{ marginLeft: 'auto', fontSize: '14px', color: 'var(--gray)' }}>
+                  <p style={{ marginBottom: '16px' }}>Select an unassigned asset:</p>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' }}>
+                    <select
+                      value={modalCategoryFilter}
+                      onChange={(e) => setModalCategoryFilter(e.target.value)}
+                      style={{ padding: '6px 12px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '14px', background: 'white', minWidth: '140px' }}
+                    >
+                      <option value="all">All Categories</option>
+                      {types.filter(t => unassignedItems.some(item => item.type_id === t.id)).map(cat => (
+                        <option key={cat.id} value={String(cat.id)}>{cat.icon || '📦'} {cat.name}</option>
+                      ))}
+                    </select>
+                    <select
+                      value={modalConditionFilter}
+                      onChange={(e) => setModalConditionFilter(e.target.value)}
+                      style={{ padding: '6px 12px', border: '1px solid #ccc', borderRadius: '4px', fontSize: '14px', background: 'white', minWidth: '120px' }}
+                    >
+                      <option value="">All Conditions</option>
+                      <option value="New">🆕 New</option>
+                      <option value="Refurbed">🔄 Refurbed</option>
+                      <option value="Damaged">❌ Damaged</option>
+                      <option value="Used">📦 Used</option>
+                      <option value="Condemned">⛔ Condemned</option>
+                    </select>
+                    <span style={{ marginLeft: 'auto', fontSize: '14px', color: '#6B7280' }}>
                       {filteredUnassigned.length} available
                     </span>
                   </div>
-
-                  <div className="items-table" style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                    <table>
+                  <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '13px' }}>
                       <thead>
-                        <tr>
-                          <th>Equipment</th>
-                          <th>Brand</th>
-                          <th>Model</th>
-                          <th>S/N</th>
-                          <th>Condition</th>
-                          <th>Action</th>
+                        <tr style={{ background: '#FAFAFB', borderBottom: '1px solid #ECEDF1' }}>
+                          <th style={{ padding: '8px 12px', textAlign: 'left' }}>Equipment</th>
+                          <th style={{ padding: '8px 12px', textAlign: 'left' }}>Brand</th>
+                          <th style={{ padding: '8px 12px', textAlign: 'left' }}>Model</th>
+                          <th style={{ padding: '8px 12px', textAlign: 'left' }}>S/N</th>
+                          <th style={{ padding: '8px 12px', textAlign: 'left' }}>Condition</th>
+                          <th style={{ padding: '8px 12px', textAlign: 'center' }}>Action</th>
                         </tr>
                       </thead>
                       <tbody>
                         {filteredUnassigned.length === 0 ? (
-                          <tr><td colSpan="6" className="empty-state">No unassigned assets available.</td></tr>
+                          <tr><td colSpan="6" style={{ padding: '20px', textAlign: 'center', color: '#6B7280' }}>No unassigned assets available.</td></tr>
                         ) : (
                           filteredUnassigned.map((item) => (
-                            <tr key={item.id}>
-                              <td><strong>{item.name}</strong></td>
-                              <td>{item.brand || '-'}</td>
-                              <td>{item.model || '-'}</td>
-                              <td style={{ fontFamily: 'monospace', fontSize: '12px' }}>{item.serial_number || '-'}</td>
-                              <td>{item.condition || '-'}</td>
-                              <td>
-                                <button className="action-btn assign" onClick={() => handleSelectUnassignedItem(item)}>
+                            <tr key={item.id} style={{ borderBottom: '1px solid #F3F4F6' }}>
+                              <td style={{ padding: '8px 12px' }}><strong>{item.name}</strong></td>
+                              <td style={{ padding: '8px 12px' }}>{item.brand || '-'}</td>
+                              <td style={{ padding: '8px 12px' }}>{item.model || '-'}</td>
+                              <td style={{ padding: '8px 12px', fontFamily: 'monospace', fontSize: '12px' }}>{item.serial_number || '-'}</td>
+                              <td style={{ padding: '8px 12px' }}>{getConditionBadge(item.condition)}</td>
+                              <td style={{ padding: '8px 12px', textAlign: 'center' }}>
+                                <button className="gl-btn-primary" style={{ padding: '4px 12px', fontSize: '12px' }} onClick={() => handleSelectUnassignedItem(item)}>
                                   Select
                                 </button>
                               </td>
@@ -770,51 +852,48 @@ const AssetAssignment = ({
                   <div style={{ marginBottom: '16px' }}>
                     <h4>Selected Asset</h4>
                     <p><strong>{selectedItem.name}</strong></p>
-                    <p style={{ fontSize: '14px' }}>
-                      Brand: {selectedItem.brand || '-'} | Model: {selectedItem.model || '-'} | S/N: {selectedItem.serial_number || '-'}
-                    </p>
-                    <p style={{ fontSize: '14px' }}>Specifications: {selectedItem.specifications || '-'}</p>
+                    <p style={{ fontSize: '14px' }}>Brand: {selectedItem.brand || '-'} | Model: {selectedItem.model || '-'} | S/N: {selectedItem.serial_number || '-'}</p>
                   </div>
                   <hr />
-                  <div className="form-row">
+                  <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '8px' }}>
                     <div className="form-group">
                       <label>Issued By *</label>
-                      <input type="text" name="issued_by" value={voucherData.issued_by} onChange={handleVoucherChange} placeholder="e.g., Syed Afaq Haider" />
+                      <input type="text" name="issued_by" value={voucherData.issued_by} onChange={handleVoucherChange} placeholder="e.g., Syed Afaq Haider" style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
                     </div>
                     <div className="form-group">
                       <label>Received By *</label>
-                      <input type="text" name="received_by" value={voucherData.received_by} onChange={handleVoucherChange} placeholder="e.g., Zaheer Abbas" />
+                      <input type="text" name="received_by" value={voucherData.received_by} onChange={handleVoucherChange} placeholder="e.g., Zaheer Abbas" style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
                     </div>
                   </div>
-                  <div className="form-row">
+                  <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '8px' }}>
                     <div className="form-group">
                       <label>Department</label>
-                      <input type="text" name="department" value={voucherData.department} onChange={handleVoucherChange} placeholder="e.g., IT FC" />
+                      <input type="text" name="department" value={voucherData.department} onChange={handleVoucherChange} placeholder="e.g., IT FC" style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
                     </div>
                     <div className="form-group">
                       <label>Station</label>
-                      <input type="text" name="station" value={voucherData.station} onChange={handleVoucherChange} placeholder="e.g., Rawalpindi" />
+                      <input type="text" name="station" value={voucherData.station} onChange={handleVoucherChange} placeholder="e.g., Rawalpindi" style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
                     </div>
                   </div>
-                  <div className="form-row">
+                  <div className="form-row" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px', marginBottom: '8px' }}>
                     <div className="form-group">
                       <label>Employee ID</label>
-                      <input type="text" name="employee_id" value={voucherData.employee_id} onChange={handleVoucherChange} placeholder="e.g., FFL-12345" />
+                      <input type="text" name="employee_id" value={voucherData.employee_id} onChange={handleVoucherChange} placeholder="e.g., FFL-12345" style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
                     </div>
                     <div className="form-group">
                       <label>Designation</label>
-                      <input type="text" name="designation" value={voucherData.designation} onChange={handleVoucherChange} placeholder="e.g., Manager IT" />
+                      <input type="text" name="designation" value={voucherData.designation} onChange={handleVoucherChange} placeholder="e.g., Manager IT" style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
                     </div>
                   </div>
-                  <div className="form-group">
-                    <label>Email</label>   {/* ✅ added */}
-                    <input type="email" name="email" value={voucherData.email} onChange={handleVoucherChange} placeholder="email@domain.com" />
+                  <div className="form-group" style={{ marginBottom: '8px' }}>
+                    <label>Email</label>
+                    <input type="email" name="email" value={voucherData.email} onChange={handleVoucherChange} placeholder="email@domain.com" style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
                   </div>
-                  <div className="form-group">
+                  <div className="form-group" style={{ marginBottom: '8px' }}>
                     <label>Date of Issuance</label>
-                    <input type="date" name="date_of_issuance" value={voucherData.date_of_issuance} onChange={handleVoucherChange} />
+                    <input type="date" name="date_of_issuance" value={voucherData.date_of_issuance} onChange={handleVoucherChange} style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
                   </div>
-                  <div className="form-actions">
+                  <div className="form-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
                     <button className="btn-cancel" onClick={() => setSelectedItem(null)}>Back</button>
                     <button className="btn-submit" onClick={handleAssignSubmit}>Assign & Print Voucher</button>
                   </div>
@@ -833,45 +912,45 @@ const AssetAssignment = ({
               <h2>✏️ Edit Assignment</h2>
               <button className="close-btn" onClick={closeEditModal}>×</button>
             </div>
-            <div className="modal-body">
+            <div className="modal-body" style={{ padding: '20px' }}>
               <p><strong>Asset:</strong> {selectedItem.name}</p>
-              <div className="form-group">
+              <div className="form-group" style={{ marginBottom: '8px' }}>
                 <label>Assigned To *</label>
-                <input type="text" name="assigned_to" value={editData.assigned_to} onChange={handleEditChange} />
+                <input type="text" name="assigned_to" value={editData.assigned_to} onChange={handleEditChange} style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
               </div>
-              <div className="form-group">
+              <div className="form-group" style={{ marginBottom: '8px' }}>
                 <label>Location</label>
-                <input type="text" name="location" value={editData.location} onChange={handleEditChange} />
+                <input type="text" name="location" value={editData.location} onChange={handleEditChange} style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
               </div>
-              <div className="form-group">
+              <div className="form-group" style={{ marginBottom: '8px' }}>
                 <label>Department</label>
-                <input type="text" name="department" value={editData.department} onChange={handleEditChange} />
+                <input type="text" name="department" value={editData.department} onChange={handleEditChange} style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
               </div>
-              <div className="form-group">
+              <div className="form-group" style={{ marginBottom: '8px' }}>
                 <label>Station</label>
-                <input type="text" name="station" value={editData.station} onChange={handleEditChange} />
+                <input type="text" name="station" value={editData.station} onChange={handleEditChange} style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
               </div>
-              <div className="form-group">
+              <div className="form-group" style={{ marginBottom: '8px' }}>
                 <label>Issued By</label>
-                <input type="text" name="issued_by" value={editData.issued_by} onChange={handleEditChange} />
+                <input type="text" name="issued_by" value={editData.issued_by} onChange={handleEditChange} style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
               </div>
-              <div className="form-group">
+              <div className="form-group" style={{ marginBottom: '8px' }}>
                 <label>Employee ID</label>
-                <input type="text" name="employee_id" value={editData.employee_id} onChange={handleEditChange} />
+                <input type="text" name="employee_id" value={editData.employee_id} onChange={handleEditChange} style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
               </div>
-              <div className="form-group">
+              <div className="form-group" style={{ marginBottom: '8px' }}>
                 <label>Designation</label>
-                <input type="text" name="designation" value={editData.designation} onChange={handleEditChange} />
+                <input type="text" name="designation" value={editData.designation} onChange={handleEditChange} style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
               </div>
-              <div className="form-group">
-                <label>Email</label>   {/* ✅ added */}
-                <input type="email" name="email" value={editData.email} onChange={handleEditChange} placeholder="email@domain.com" />
+              <div className="form-group" style={{ marginBottom: '8px' }}>
+                <label>Email</label>
+                <input type="email" name="email" value={editData.email} onChange={handleEditChange} style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
               </div>
-              <div className="form-group">
+              <div className="form-group" style={{ marginBottom: '8px' }}>
                 <label>Date of Issuance</label>
-                <input type="date" name="date_of_issuance" value={editData.date_of_issuance} onChange={handleEditChange} />
+                <input type="date" name="date_of_issuance" value={editData.date_of_issuance} onChange={handleEditChange} style={{ width: '100%', padding: '6px 10px', borderRadius: '4px', border: '1px solid #D1D5DB' }} />
               </div>
-              <div className="form-actions">
+              <div className="form-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
                 <button className="btn-cancel" onClick={closeEditModal}>Cancel</button>
                 <button className="btn-submit" onClick={handleEditSubmit}>Update</button>
               </div>
@@ -888,9 +967,9 @@ const AssetAssignment = ({
               <h2>📄 Asset Receipt Voucher</h2>
               <button className="close-btn" onClick={() => setShowVoucherModal(false)}>×</button>
             </div>
-            <div className="modal-body" ref={printRef}>
+            <div className="modal-body" ref={printRef} style={{ padding: '20px' }}>
               <div className="voucher-content">
-                <div className="header">ISSUE / RECEIPT VOUCHER</div>
+                <div className="header" style={{ textAlign: 'center', fontSize: '24px', fontWeight: 'bold', borderBottom: '2px solid #000', paddingBottom: '10px' }}>ISSUE / RECEIPT VOUCHER</div>
                 <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', margin: '10px 0' }}>
                   <div><strong>Department:</strong> {voucherItem.department || voucherItem.type_name || 'IT'}</div>
                   <div><strong>FC</strong></div>
@@ -900,28 +979,50 @@ const AssetAssignment = ({
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '5px' }}>
                   <div><strong>Employee ID:</strong> {voucherItem.employee_id || '-'}</div>
                   <div><strong>Designation:</strong> {voucherItem.designation || '-'}</div>
-                  <div><strong>Email:</strong> {voucherItem.email || '-'}</div>   {/* ✅ added */}
+                  <div><strong>Email:</strong> {voucherItem.email || '-'}</div>
                 </div>
                 <hr />
                 <h4>Equipment</h4>
-                <table className="items-table">
-                  <thead><tr><th>Sr.</th><th>Items</th><th>QTY</th><th>Remarks</th></tr></thead>
+                <table className="items-table" style={{ width: '100%', borderCollapse: 'collapse', margin: '15px 0' }}>
+                  <thead>
+                    <tr style={{ background: '#f5f5f5' }}>
+                      <th style={{ border: '1px solid #000', padding: '8px', textAlign: 'left' }}>Sr.</th>
+                      <th style={{ border: '1px solid #000', padding: '8px', textAlign: 'left' }}>Items</th>
+                      <th style={{ border: '1px solid #000', padding: '8px', textAlign: 'left' }}>QTY</th>
+                      <th style={{ border: '1px solid #000', padding: '8px', textAlign: 'left' }}>Remarks</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     <tr>
-                      <td>1</td>
-                      <td>{voucherItem.name}<br /><span style={{ fontSize: '12px' }}>Serial: {voucherItem.serial_number || '-'}<br />{voucherItem.specifications || ''}</span></td>
-                      <td>{voucherItem.quantity || 1}</td>
-                      <td>{voucherItem.remarks || voucherItem.notes || ''}{voucherItem.asset && <div><strong>Asset:</strong> {voucherItem.asset}</div>}</td>
+                      <td style={{ border: '1px solid #000', padding: '8px' }}>1</td>
+                      <td style={{ border: '1px solid #000', padding: '8px' }}>
+                        {voucherItem.name}<br />
+                        <span style={{ fontSize: '12px' }}>
+                          Serial: {voucherItem.serial_number || '-'}<br />
+                          {voucherItem.specifications || ''}
+                        </span>
+                      </td>
+                      <td style={{ border: '1px solid #000', padding: '8px', textAlign: 'center' }}>{voucherItem.quantity || 1}</td>
+                      <td style={{ border: '1px solid #000', padding: '8px' }}>
+                        {voucherItem.remarks || voucherItem.notes || ''}
+                        {voucherItem.asset && <div><strong>Asset:</strong> {voucherItem.asset}</div>}
+                      </td>
                     </tr>
                   </tbody>
                 </table>
                 <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between' }}>
-                  <div><strong>Issued By</strong><br /><span style={{ borderTop: '1px solid #000', display: 'inline-block', paddingTop: '5px', minWidth: '150px' }}>{voucherItem.issued_by || 'Syed Afaq Haider'}</span></div>
-                  <div><strong>Received By</strong><br /><span style={{ borderTop: '1px solid #000', display: 'inline-block', paddingTop: '5px', minWidth: '150px' }}>{voucherItem.assigned_to || ''}</span></div>
+                  <div>
+                    <strong>Issued By</strong><br />
+                    <span style={{ borderTop: '1px solid #000', display: 'inline-block', paddingTop: '5px', minWidth: '150px' }}>{voucherItem.issued_by || 'Syed Afaq Haider'}</span>
+                  </div>
+                  <div>
+                    <strong>Received By</strong><br />
+                    <span style={{ borderTop: '1px solid #000', display: 'inline-block', paddingTop: '5px', minWidth: '150px' }}>{voucherItem.assigned_to || ''}</span>
+                  </div>
                 </div>
               </div>
             </div>
-            <div className="form-actions no-print">
+            <div className="form-actions no-print" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '16px' }}>
               <button className="btn-cancel" onClick={() => setShowVoucherModal(false)}>Close</button>
               <button className="btn-primary" onClick={handlePrint}><FaPrint /> Print</button>
             </div>
@@ -931,5 +1032,348 @@ const AssetAssignment = ({
     </div>
   );
 };
+
+// ---------- Styles (matching InventoryList) ----------
+const styles = {
+  page: {
+    minHeight: '100%',
+    background: '#F6F6F8',
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  },
+  shell: {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: '0',
+    minHeight: '100vh',
+  },
+  sidebar: {
+    width: '220px',
+    flexShrink: 0,
+    padding: '24px 14px',
+    borderRight: '1px solid #EAEAEE',
+    position: 'sticky',
+    top: 0,
+    height: '100vh',
+    overflowY: 'auto',
+    background: '#FBFBFC',
+  },
+  sidebarHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '7px',
+    fontSize: '11px',
+    fontWeight: 700,
+    color: '#9CA3AF',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    padding: '0 10px',
+    marginBottom: '8px',
+  },
+  navList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+  },
+  navItem: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '8px',
+    height: '34px',
+    padding: '0 10px',
+    borderRadius: '8px',
+    border: 'none',
+    background: 'transparent',
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#4B5563',
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
+  navItemActive: {
+    background: INK,
+    color: '#fff',
+    fontWeight: 600,
+  },
+  navLabel: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '9px',
+    overflow: 'hidden',
+    textOverflow: 'ellipsis',
+    whiteSpace: 'nowrap',
+  },
+  navDot: {
+    width: '6px',
+    height: '6px',
+    borderRadius: '50%',
+    flexShrink: 0,
+  },
+  navCount: {
+    fontSize: '11px',
+    fontWeight: 600,
+    color: '#9CA3AF',
+    flexShrink: 0,
+  },
+  navCountActive: {
+    color: 'rgba(255,255,255,0.7)',
+  },
+  sidebarDivider: {
+    height: '1px',
+    background: '#EAEAEE',
+    margin: '18px 10px',
+  },
+  filterList: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '2px',
+  },
+  filterItem: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    height: '30px',
+    padding: '0 10px',
+    borderRadius: '7px',
+    border: 'none',
+    background: 'transparent',
+    fontSize: '12.5px',
+    color: '#6B7280',
+    cursor: 'pointer',
+    textAlign: 'left',
+  },
+  filterItemActive: {
+    background: '#EEF2FF',
+    color: ACCENT,
+    fontWeight: 600,
+  },
+  filterDot: {
+    width: '6px',
+    height: '6px',
+    borderRadius: '50%',
+    flexShrink: 0,
+  },
+  main: {
+    flex: 1,
+    minWidth: 0,
+    padding: '24px 32px 40px',
+  },
+  mainHeader: {
+    display: 'flex',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: '14px',
+    marginBottom: '18px',
+  },
+  listTitle: {
+    fontSize: '19px',
+    fontWeight: 700,
+    color: '#111827',
+    margin: 0,
+    lineHeight: 1.3,
+  },
+  titleSub: {
+    fontSize: '12.5px',
+    color: '#9CA3AF',
+    margin: '2px 0 0',
+  },
+  headerActions: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+  },
+  searchBox: {
+    position: 'relative',
+    display: 'flex',
+    alignItems: 'center',
+    width: '220px',
+  },
+  searchIcon: {
+    position: 'absolute',
+    left: '11px',
+    color: '#9CA3AF',
+    pointerEvents: 'none',
+  },
+  searchInput: {
+    width: '100%',
+    height: '36px',
+    padding: '0 12px 0 32px',
+    borderRadius: '8px',
+    border: '1px solid #E5E7EB',
+    background: '#fff',
+    fontSize: '13px',
+    outline: 'none',
+    color: '#1F2937',
+  },
+  iconOnlyBtn: {
+    width: '36px',
+    height: '36px',
+    borderRadius: '8px',
+    border: '1px solid #E5E7EB',
+    background: '#fff',
+    color: '#4B5563',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+    flexShrink: 0,
+  },
+  btnPrimary: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '7px',
+    height: '36px',
+    padding: '0 15px',
+    background: ACCENT,
+    color: '#fff',
+    border: 'none',
+    borderRadius: '8px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  },
+  dropdown: {
+    position: 'absolute',
+    top: '42px',
+    right: 0,
+    borderRadius: '10px',
+    padding: '6px',
+    minWidth: '190px',
+    maxHeight: '280px',
+    overflowY: 'auto',
+    zIndex: 20,
+    background: '#fff',
+    border: '1px solid #E5E7EB',
+    boxShadow: '0 10px 24px rgba(17,24,39,0.10)',
+  },
+  dropdownHeader: {
+    fontSize: '11px',
+    fontWeight: 700,
+    color: '#9CA3AF',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+    padding: '6px 8px',
+  },
+  checkboxRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '9px',
+    padding: '7px 8px',
+    fontSize: '13px',
+    color: '#374151',
+    borderRadius: '6px',
+    cursor: 'pointer',
+  },
+  exportOption: {
+    display: 'block',
+    width: '100%',
+    textAlign: 'left',
+    padding: '9px 10px',
+    fontSize: '13px',
+    color: '#374151',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+  },
+  tableCard: {
+    borderRadius: '12px',
+    overflow: 'hidden',
+    background: '#fff',
+    border: '1px solid #ECEDF1',
+  },
+  tableScroll: {
+    overflowX: 'auto',
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    fontSize: '13px',
+  },
+  th: {
+    textAlign: 'left',
+    padding: '11px 16px',
+    background: '#FAFAFB',
+    color: '#9CA3AF',
+    fontWeight: 600,
+    fontSize: '11px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.03em',
+    borderBottom: '1px solid #ECEDF1',
+    whiteSpace: 'nowrap',
+  },
+  td: {
+    padding: '12px 16px',
+    borderBottom: '1px solid #F3F4F6',
+    color: '#374151',
+    whiteSpace: 'nowrap',
+  },
+  iconBtn: {
+    width: '28px',
+    height: '28px',
+    borderRadius: '7px',
+    border: 'none',
+    background: 'transparent',
+    color: '#9CA3AF',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+  },
+  emptyCell: { padding: '56px 20px' },
+  emptyWrap: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    gap: '5px',
+  },
+  emptyIcon: {
+    width: '48px',
+    height: '48px',
+    borderRadius: '12px',
+    background: '#F3F4F6',
+    color: '#9CA3AF',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: '6px',
+  },
+  emptyTitle: { fontSize: '14.5px', fontWeight: 700, color: '#1F2937', margin: 0 },
+  emptyText: { fontSize: '13px', color: '#9CA3AF', margin: '0 0 10px' },
+  loadingWrap: {
+    display: 'flex',
+    flexDirection: 'column',
+    alignItems: 'center',
+    justifyContent: 'center',
+    height: '60vh',
+    gap: '14px',
+  },
+  spinner: {
+    width: '30px',
+    height: '30px',
+    border: '3px solid #E5E7EB',
+    borderTopColor: ACCENT,
+    borderRadius: '50%',
+    animation: 'gl-spin 0.8s linear infinite',
+  },
+  loadingText: { color: '#6B7280', fontSize: '14px', margin: 0 },
+};
+
+const sheet = `
+@keyframes gl-spin { to { transform: rotate(360deg); } }
+.gl-row { transition: background 0.12s ease; }
+.gl-row:hover { background: #FAFAFB; }
+.gl-btn-primary { transition: opacity 0.15s ease; }
+.gl-btn-primary:hover { opacity: 0.9; }
+.gl-icon-btn { transition: all 0.12s ease; }
+.gl-icon-view:hover { background: #EFF6FF !important; color: #0284C7 !important; }
+.gl-icon-edit:hover { background: #FFFBEB !important; color: #D97706 !important; }
+.gl-icon-delete:hover { background: #FEF2F2 !important; color: #E11D48 !important; }
+input[type=text]::placeholder { color: #9CA3AF; }
+input:focus { border-color: #4F46E5 !important; box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
+@media (max-width: 900px) { .gl-sidebar { display: none; } }
+`;
 
 export default AssetAssignment;
