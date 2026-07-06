@@ -1,12 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   FaPlus, FaTrash, FaSearch, FaEye, FaEdit, FaColumns, FaTimes, FaInbox,
-  FaChevronDown, FaLayerGroup, FaFileExport, FaFileExcel
+  FaChevronDown, FaLayerGroup, FaFileExport
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import ImportExcel from './ImportExcel';
 
 const formatPKR = (amount) => {
   if (!amount) return 'Rs 0';
@@ -34,6 +33,7 @@ const COLUMN_DEFS = {
   asset: { label: 'Asset', always: false },
   assetCode: { label: 'Asset Code', always: false },
   condition: { label: 'Condition', always: false },
+  remarks: { label: 'Remarks', always: false },
   location: { label: 'Location', always: false },
   department: { label: 'Department', always: false },
   email: { label: 'Email', always: false },
@@ -41,7 +41,12 @@ const COLUMN_DEFS = {
   employeeId: { label: 'Employee ID', always: false },
   designation: { label: 'Designation', always: false },
   dateOfIssuance: { label: 'Date of Issuance', always: false },
-  remarks: { label: 'Remarks', always: false },
+};
+
+const CATEGORY_COLUMN_PRESETS = {
+  'Printers': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
+  'Copiers': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
+  'Scanners': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
 };
 
 const DEFAULT_VISIBLE = Object.keys(COLUMN_DEFS).reduce((acc, key) => {
@@ -49,20 +54,44 @@ const DEFAULT_VISIBLE = Object.keys(COLUMN_DEFS).reduce((acc, key) => {
   return acc;
 }, {});
 
-const ACCENT = '#4F46E5';
+// ---- Design tokens -------------------------------------------------------
+// A "manifest" aesthetic: the tool tracks physical, tagged assets, so the
+// UI borrows from ledgers and shipping tags rather than a generic SaaS dashboard.
 const INK = '#14161F';
-const CATEGORY_TINTS = ['#4F46E5', '#0D9488', '#B45309', '#BE185D', '#0369A1', '#4D7C0F', '#7C3AED', '#C2410C'];
+const PAPER = '#F2F0EA';
+const TEAL = '#1F6F78';     // primary accent — steady, industrial, not the usual violet/terracotta
+const AMBER = '#C08A1E';    // secondary accent — used sparingly, tag-string color
+const CATEGORY_TINTS = ['#1F6F78', '#B45309', '#5B4B8A', '#0F766E', '#9A3412', '#4D5B8A', '#7C5A2A', '#3F6B3A'];
 const getTint = (index) => CATEGORY_TINTS[index % CATEGORY_TINTS.length];
 
 const CONDITION_STYLES = {
-  New: { bg: '#ECFDF5', text: '#047857', dot: '#10B981' },
-  Refurbed: { bg: '#EFF6FF', text: '#1D4ED8', dot: '#3B82F6' },
-  Damaged: { bg: '#FEF2F2', text: '#B91C1C', dot: '#EF4444' },
-  Used: { bg: '#F9FAFB', text: '#4B5563', dot: '#9CA3AF' },
-  Condemned: { bg: '#FEF2F2', text: '#7F1D1D', dot: '#7F1D1D' },
+  New: { bg: '#EAF4EF', text: '#1F6F4A', dot: '#2E9E64' },
+  Refurbed: { bg: '#EAF1F4', text: '#1F6F78', dot: '#3B98A6' },
+  Damaged: { bg: '#FBEDEA', text: '#B4442B', dot: '#D25B3F' },
+  Used: { bg: '#F1EFE9', text: '#6B6353', dot: '#A69A81' },
+  Condemned: { bg: '#F7E9E5', text: '#8A2E1B', dot: '#8A2E1B' },
 };
 
 const CONDITIONS = ['New', 'Refurbed', 'Damaged', 'Used', 'Condemned'];
+
+// A small "hang tag" glyph — the signature motif. Each category reads like a
+// physical inventory tag (punched hole + string) rather than a flat color dot.
+const TagGlyph = ({ color }) => (
+  <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+    <path
+      d="M1.2 6.4 L6.4 1.2 a1.3 1.3 0 0 1 1.8 0 l4.6 4.6 a1.3 1.3 0 0 1 0 1.8 l-5.2 5.2 a1.3 1.3 0 0 1-1.8 0 L1.2 8.2 a1.3 1.3 0 0 1 0-1.8 Z"
+      fill={color}
+      opacity="0.16"
+    />
+    <path
+      d="M1.2 6.4 L6.4 1.2 a1.3 1.3 0 0 1 1.8 0 l4.6 4.6 a1.3 1.3 0 0 1 0 1.8 l-5.2 5.2 a1.3 1.3 0 0 1-1.8 0 L1.2 8.2 a1.3 1.3 0 0 1 0-1.8 Z"
+      fill="none"
+      stroke={color}
+      strokeWidth="1"
+    />
+    <circle cx="4.6" cy="4.6" r="1" fill={color} />
+  </svg>
+);
 
 const InventoryList = ({
   items,
@@ -77,26 +106,16 @@ const InventoryList = ({
   isMaster,
   isItInventory,
   types,
-  categoryId,
-  onRefresh,
 }) => {
   const [activeTab, setActiveTab] = useState(null);
   const [conditionFilter, setConditionFilter] = useState('');
   const [showColumnDropdown, setShowColumnDropdown] = useState(false);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
-  const [showImportDropdown, setShowImportDropdown] = useState(false);
-  const [showImportExcel, setShowImportExcel] = useState(false);
-  const [showCategoryExportModal, setShowCategoryExportModal] = useState(false);
-  const [selectedExportCategories, setSelectedExportCategories] = useState([]);
-  const [exportType, setExportType] = useState('excel'); // 'excel' or 'pdf'
   const columnRef = useRef(null);
   const exportRef = useRef(null);
-  const importRef = useRef(null);
-
   const isMasterInventory = isMaster || title === 'Master Inventory' || title === 'IT Inventory (Unassigned)';
   const isTrueMaster = isMaster && !isItInventory;
 
-  // ---------- Column Visibility ----------
   const getDefaultVisible = () => {
     const stored = localStorage.getItem('inventory_columns');
     if (stored) {
@@ -111,16 +130,11 @@ const InventoryList = ({
     }
     return { ...DEFAULT_VISIBLE };
   };
-
   const [visibleColumns, setVisibleColumns] = useState(getDefaultVisible);
 
   useEffect(() => {
     localStorage.setItem('inventory_columns', JSON.stringify(visibleColumns));
   }, [visibleColumns]);
-
-  const toggleColumn = (key) => {
-    setVisibleColumns(prev => ({ ...prev, [key]: !prev[key] }));
-  };
 
   const getCategoriesFromItems = () => {
     const map = {};
@@ -157,57 +171,54 @@ const InventoryList = ({
     categoryTintMap[cat.id] = getTint(idx);
   });
 
-  // ---------- Export Category Selection Modal ----------
-  const openCategoryExportModal = (type) => {
-    let defaultSelected = categories.map(c => c.id);
+  useEffect(() => {
     if (activeTab) {
-      defaultSelected = [activeTab];
+      const category = categories.find(c => c.id === activeTab);
+      if (category) {
+        const preset = CATEGORY_COLUMN_PRESETS[category.name];
+        if (preset) {
+          const newVisibility = {};
+          Object.keys(COLUMN_DEFS).forEach(key => {
+            newVisibility[key] = preset.includes(key);
+          });
+          setVisibleColumns(newVisibility);
+          localStorage.setItem('inventory_columns', JSON.stringify(newVisibility));
+        }
+      }
     }
-    setSelectedExportCategories(defaultSelected);
-    setExportType(type);
-    setShowCategoryExportModal(true);
-    setShowExportDropdown(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
+
+  useEffect(() => {
+    const handleClickOutside = (event) => {
+      if (columnRef.current && !columnRef.current.contains(event.target)) {
+        setShowColumnDropdown(false);
+      }
+      if (exportRef.current && !exportRef.current.contains(event.target)) {
+        setShowExportDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const toggleColumn = (key) => {
+    setVisibleColumns(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
-  const toggleExportCategory = (catId) => {
-    setSelectedExportCategories(prev =>
-      prev.includes(catId) ? prev.filter(id => id !== catId) : [...prev, catId]
-    );
+  const getColumnKeys = () => {
+    const base = [
+      'brand', 'model', 'serial', 'specs', 'qty', 'price',
+      'asset', 'assetCode', 'condition', 'remarks', 'location',
+      'department', 'email'
+    ];
+    if (isMasterInventory) base.unshift('category');
+    if (isTrueMaster) base.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
+    return base.filter(key => COLUMN_DEFS[key]);
   };
+  const availableColumns = getColumnKeys();
 
-  const selectAllExportCategories = () => {
-    if (selectedExportCategories.length === categories.length) {
-      setSelectedExportCategories([]);
-    } else {
-      setSelectedExportCategories(categories.map(c => c.id));
-    }
-  };
-
-  const getFilteredItemsForExport = (selectedCatIds) => {
-    if (selectedCatIds.length === 0) return [];
-    return items.filter(item => selectedCatIds.includes(item.type_id));
-  };
-
-  const handleExportWithCategories = () => {
-    if (selectedExportCategories.length === 0) {
-      alert('Please select at least one category.');
-      return;
-    }
-    const exportItems = getFilteredItemsForExport(selectedExportCategories);
-    if (exportItems.length === 0) {
-      alert('No items found for the selected categories.');
-      return;
-    }
-    setShowCategoryExportModal(false);
-    if (exportType === 'excel') {
-      handleExportExcel(exportItems);
-    } else {
-      handleExportPDF(exportItems);
-    }
-  };
-
-  // ----- Refactored Export Logic -----
-  const getCategoryGroupsForExport = (allItems) => {
+  const getCategoryGroups = (allItems) => {
     const groups = {};
     allItems.forEach(item => {
       const key = item.type_id || 'uncategorized';
@@ -224,6 +235,15 @@ const InventoryList = ({
     return Object.values(groups).sort((a, b) => a.name.localeCompare(b.name));
   };
 
+  const columnOrder = [
+    'brand', 'model', 'serial', 'specs', 'qty', 'price',
+    'asset', 'assetCode', 'condition', 'remarks', 'location',
+    'department', 'email'
+  ];
+  if (isTrueMaster) {
+    columnOrder.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
+  }
+
   const buildValueMap = (item) => ({
     brand: item.brand || '',
     model: item.model || '',
@@ -234,6 +254,7 @@ const InventoryList = ({
     asset: item.asset || '',
     assetCode: item.asset_code || '',
     condition: item.condition || '',
+    remarks: item.remarks || '',
     location: item.location || '',
     department: item.department || '',
     email: item.email || '',
@@ -241,39 +262,12 @@ const InventoryList = ({
     employeeId: item.employee_id || '',
     designation: item.designation || '',
     dateOfIssuance: formatDate(item.date_of_issuance),
-    remarks: item.remarks || '',
   });
 
-  const getColumnOrder = () => {
-    const order = [
-      'brand', 'model', 'serial', 'specs', 'qty', 'price',
-      'asset', 'assetCode', 'condition', 'location',
-      'department', 'email'
-    ];
-    if (isMasterInventory) order.unshift('category');
-    if (isTrueMaster) order.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
-    order.push('remarks');
-    return order;
-  };
-  const columnOrder = getColumnOrder();
-
-  const getAvailableColumnKeys = () => {
-    const base = [
-      'brand', 'model', 'serial', 'specs', 'qty', 'price',
-      'asset', 'assetCode', 'condition', 'location',
-      'department', 'email'
-    ];
-    if (isMasterInventory) base.unshift('category');
-    if (isTrueMaster) base.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
-    base.push('remarks');
-    return base.filter(key => COLUMN_DEFS[key]);
-  };
-  const availableColumns = getAvailableColumnKeys();
-
-  const handleExportExcel = (exportItems = items) => {
+  const handleExportExcel = () => {
     setShowExportDropdown(false);
-    const allItems = exportItems;
-    const groups = getCategoryGroupsForExport(allItems);
+    const allItems = items;
+    const groups = getCategoryGroups(allItems);
     const filename = title || 'Inventory';
 
     const buildHeaders = () => {
@@ -309,10 +303,10 @@ const InventoryList = ({
     XLSX.writeFile(wb, `${filename}.xlsx`);
   };
 
-  const handleExportPDF = (exportItems = items) => {
+  const handleExportPDF = () => {
     setShowExportDropdown(false);
-    const allItems = exportItems;
-    const groups = getCategoryGroupsForExport(allItems);
+    const allItems = items;
+    const groups = getCategoryGroups(allItems);
     const filename = title || 'Inventory';
 
     const doc = new jsPDF('landscape', 'mm', 'a4');
@@ -344,7 +338,7 @@ const InventoryList = ({
         body: tableData,
         startY: yAfterTitle,
         styles: { fontSize: 8, font: 'helvetica' },
-        headStyles: { fillColor: [79, 70, 229], font: 'helvetica' },
+        headStyles: { fillColor: [31, 111, 120], font: 'helvetica' },
         margin: { left: 10, right: 10 },
       });
 
@@ -359,24 +353,6 @@ const InventoryList = ({
     doc.save(`${filename}.pdf`);
   };
 
-  // ---------- Export dropdown handlers ----------
-  const handleExportExcelClick = () => {
-    if (isMasterInventory) {
-      openCategoryExportModal('excel');
-    } else {
-      handleExportExcel(items);
-    }
-  };
-
-  const handleExportPDFClick = () => {
-    if (isMasterInventory) {
-      openCategoryExportModal('pdf');
-    } else {
-      handleExportPDF(items);
-    }
-  };
-
-  // ---------- Render Helpers ----------
   const renderHeaders = () => {
     const headers = [<th key="#" style={styles.th}>#</th>];
     if (isMasterInventory && visibleColumns.category) {
@@ -403,14 +379,16 @@ const InventoryList = ({
     );
   };
 
+  const MONO_KEYS = new Set(['serial', 'assetCode', 'qty', 'price', 'employeeId']);
+
   const renderRowCells = (item, index) => {
-    const cells = [<td key={`${item.id}-num`} style={{ ...styles.td, color: '#C1C4CC' }}>{index + 1}</td>];
+    const cells = [<td key={`${item.id}-num`} style={{ ...styles.td, ...styles.tdMono, color: '#B9B3A4' }}>{String(index + 1).padStart(3, '0')}</td>];
     if (isMasterInventory && visibleColumns.category) {
-      const tint = categoryTintMap[item.type_id] || '#6B7280';
+      const tint = categoryTintMap[item.type_id] || '#6B6353';
       cells.push(
         <td key={`${item.id}-category`} style={styles.td}>
           <span style={styles.categoryTag}>
-            <span style={{ ...styles.categoryDot, background: tint }} />
+            <TagGlyph color={tint} />
             {item.type_name}
           </span>
         </td>
@@ -427,6 +405,7 @@ const InventoryList = ({
       asset: <span style={styles.assetLink}>{item.asset || '-'}</span>,
       assetCode: item.asset_code || dash,
       condition: getConditionBadge(item.condition),
+      remarks: item.remarks || dash,
       location: item.location || dash,
       department: item.department || dash,
       email: item.email || dash,
@@ -434,32 +413,28 @@ const InventoryList = ({
       employeeId: item.employee_id || dash,
       designation: item.designation || dash,
       dateOfIssuance: formatDate(item.date_of_issuance),
-      remarks: item.remarks || dash,
     };
     columnOrder.forEach(key => {
       if (availableColumns.includes(key) && visibleColumns[key]) {
-        cells.push(<td key={`${item.id}-${key}`} style={styles.td}>{valueMap[key]}</td>);
+        cells.push(
+          <td key={`${item.id}-${key}`} style={{ ...styles.td, ...(MONO_KEYS.has(key) ? styles.tdMono : {}) }}>
+            {valueMap[key]}
+          </td>
+        );
       }
     });
-
-    const showEditDelete = isItInventory;
-
     cells.push(
       <td key={`${item.id}-actions`} style={{ ...styles.td, textAlign: 'right' }}>
         <div style={styles.actionRow}>
           <button className="gl-icon-btn gl-icon-view" style={styles.iconBtn} onClick={() => onViewItem && onViewItem(item)} title="View">
             <FaEye size={12} />
           </button>
-          {showEditDelete && (
-            <>
-              <button className="gl-icon-btn gl-icon-edit" style={styles.iconBtn} onClick={() => onEditItem && onEditItem(item)} title="Edit">
-                <FaEdit size={12} />
-              </button>
-              <button className="gl-icon-btn gl-icon-delete" style={styles.iconBtn} onClick={() => onDeleteItem(item.id)} title="Delete">
-                <FaTrash size={12} />
-              </button>
-            </>
-          )}
+          <button className="gl-icon-btn gl-icon-edit" style={styles.iconBtn} onClick={() => onEditItem && onEditItem(item)} title="Edit">
+            <FaEdit size={12} />
+          </button>
+          <button className="gl-icon-btn gl-icon-delete" style={styles.iconBtn} onClick={() => onDeleteItem(item.id)} title="Delete">
+            <FaTrash size={12} />
+          </button>
         </div>
       </td>
     );
@@ -491,14 +466,16 @@ const InventoryList = ({
 
   const filteredItems = getFilteredItems();
   const getActiveCategoryName = () => {
-    if (!activeTab) return 'All Items';
+    if (!activeTab) return 'All items';
     const cat = categories.find(c => c.id === activeTab);
-    return cat ? cat.name : 'All Items';
+    return cat ? cat.name : 'All items';
   };
   const handleTabClick = (id) => setActiveTab(activeTab === id ? null : id);
 
   const visibleDataCols = availableColumns.filter(key => visibleColumns[key]).length;
   const colSpan = 2 + visibleDataCols;
+
+  const totalValue = items.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0);
 
   if (loading) {
     return (
@@ -516,250 +493,182 @@ const InventoryList = ({
     <div style={styles.page}>
       <style>{sheet}</style>
 
-      <div style={styles.shell}>
-        {isMasterInventory && categories.length > 0 && (
-          <aside style={styles.sidebar}>
-            <div style={styles.sidebarHeader}>
-              <FaLayerGroup size={12} color="#9CA3AF" />
-              <span>Categories</span>
-            </div>
-
-            <nav style={styles.navList}>
-              <button
-                onClick={() => setActiveTab(null)}
-                style={{ ...styles.navItem, ...(!activeTab ? styles.navItemActive : {}) }}
-              >
-                <span style={styles.navLabel}>All items</span>
-                <span style={{ ...styles.navCount, ...(!activeTab ? styles.navCountActive : {}) }}>{items.length}</span>
-              </button>
-
-              {categories.map(cat => {
-                const tint = categoryTintMap[cat.id];
-                const isActive = activeTab === cat.id;
-                return (
-                  <button
-                    key={cat.id}
-                    onClick={() => handleTabClick(cat.id)}
-                    style={{ ...styles.navItem, ...(isActive ? styles.navItemActive : {}) }}
-                  >
-                    <span style={styles.navLabel}>
-                      <span style={{ ...styles.navDot, background: isActive ? '#fff' : tint }} />
-                      {cat.name}
-                    </span>
-                    <span style={{ ...styles.navCount, ...(isActive ? styles.navCountActive : {}) }}>{cat.count}</span>
-                  </button>
-                );
-              })}
-            </nav>
-
-            <div style={styles.sidebarDivider} />
-
-            <div style={styles.sidebarHeader}>Condition</div>
-            <div style={styles.filterList}>
-              <button
-                onClick={() => setConditionFilter('')}
-                style={{ ...styles.filterItem, ...(!conditionFilter ? styles.filterItemActive : {}) }}
-              >
-                Any
-              </button>
-              {CONDITIONS.map(c => (
-                <button
-                  key={c}
-                  onClick={() => setConditionFilter(conditionFilter === c ? '' : c)}
-                  style={{ ...styles.filterItem, ...(conditionFilter === c ? styles.filterItemActive : {}) }}
-                >
-                  <span style={{ ...styles.filterDot, background: CONDITION_STYLES[c]?.dot || '#9CA3AF' }} />
-                  {c}
-                </button>
-              ))}
-            </div>
-          </aside>
-        )}
-
-        <main style={styles.main}>
-          <div style={styles.mainHeader}>
+      <div style={styles.frame}>
+        {/* Top bar */}
+        <header style={styles.topbar}>
+          <div style={styles.brandBlock}>
+            <div style={styles.mark}>IT</div>
             <div>
-              <h1 style={styles.listTitle}>
-                {activeTab ? getActiveCategoryName() : (title || 'Inventory')}
-              </h1>
-              <p style={styles.titleSub}>{filteredItems.length} of {items.length} items{conditionFilter ? ` · ${conditionFilter}` : ''}</p>
+              <h1 style={styles.brandTitle}>{activeTab ? getActiveCategoryName() : (title || 'Inventory')}</h1>
+              <p style={styles.brandSub}>Fauji Foods · Asset manifest</p>
+            </div>
+          </div>
+
+          <div style={styles.headerActions}>
+            <div style={styles.searchBox}>
+              <FaSearch style={styles.searchIcon} size={12} />
+              <input
+                type="text"
+                placeholder="Search assets…"
+                value={searchTerm}
+                onChange={(e) => onSearch(e.target.value)}
+                style={styles.searchInput}
+              />
             </div>
 
-            <div style={styles.headerActions}>
-              <div style={styles.searchBox}>
-                <FaSearch style={styles.searchIcon} size={12} />
-                <input
-                  type="text"
-                  placeholder="Search…"
-                  value={searchTerm}
-                  onChange={(e) => onSearch(e.target.value)}
-                  style={styles.searchInput}
-                />
-              </div>
-
-              <div style={{ position: 'relative' }} ref={columnRef}>
-                <button style={styles.iconOnlyBtn} onClick={() => setShowColumnDropdown(!showColumnDropdown)} title="Columns">
-                  <FaColumns size={13} />
-                </button>
-                {showColumnDropdown && (
-                  <div style={styles.dropdown}>
-                    <div style={styles.dropdownHeader}>Show columns</div>
-                    {availableColumns.map(key => (
-                      <label key={key} className="gl-checkbox-row" style={styles.checkboxRow}>
-                        <input
-                          type="checkbox"
-                          checked={visibleColumns[key]}
-                          onChange={() => toggleColumn(key)}
-                          style={{ accentColor: ACCENT }}
-                        />
-                        {COLUMN_DEFS[key].label}
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              {/* Export dropdown */}
-              <div style={{ position: 'relative' }} ref={exportRef}>
-                <button style={styles.iconOnlyBtn} onClick={() => setShowExportDropdown(!showExportDropdown)} title="Export">
-                  <FaFileExport size={13} />
-                </button>
-                {showExportDropdown && (
-                  <div style={{ ...styles.dropdown, minWidth: '150px' }}>
-                    <button style={styles.exportOption} onClick={handleExportExcelClick}>Export as Excel</button>
-                    <button style={styles.exportOption} onClick={handleExportPDFClick}>Export as PDF</button>
-                  </div>
-                )}
-              </div>
-
-              {/* Import dropdown */}
-              <div style={{ position: 'relative' }} ref={importRef}>
-                <button style={styles.iconOnlyBtn} onClick={() => setShowImportDropdown(!showImportDropdown)} title="Import">
-                  <FaFileExcel size={13} />
-                </button>
-                {showImportDropdown && (
-                  <div style={{ ...styles.dropdown, minWidth: '150px' }}>
-                    <button style={styles.exportOption} onClick={() => {
-                      setShowImportDropdown(false);
-                      setShowImportExcel(true);
-                    }}>
-                      Import Excel
-                    </button>
-                  </div>
-                )}
-              </div>
-
-              {isItInventory && (
-                <button className="gl-btn-primary" style={styles.btnPrimary} onClick={onAddItem}>
-                  <FaPlus size={12} /> Add equipment
-                </button>
+            <div style={{ position: 'relative' }} ref={columnRef}>
+              <button style={styles.iconOnlyBtn} onClick={() => setShowColumnDropdown(!showColumnDropdown)} title="Columns">
+                <FaColumns size={13} />
+              </button>
+              {showColumnDropdown && (
+                <div style={styles.dropdown}>
+                  <div style={styles.dropdownHeader}>Show columns</div>
+                  {availableColumns.map(key => (
+                    <label key={key} className="gl-checkbox-row" style={styles.checkboxRow}>
+                      <input
+                        type="checkbox"
+                        checked={visibleColumns[key]}
+                        onChange={() => toggleColumn(key)}
+                        style={{ accentColor: TEAL }}
+                      />
+                      {COLUMN_DEFS[key].label}
+                    </label>
+                  ))}
+                </div>
               )}
             </div>
-          </div>
 
-          <div style={styles.tableCard}>
-            <div style={styles.tableScroll}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>{renderHeaders()}</tr>
-                </thead>
-                <tbody>
-                  {filteredItems.length === 0 ? (
-                    <tr>
-                      <td colSpan={colSpan} style={styles.emptyCell}>
-                        <div style={styles.emptyWrap}>
-                          <div style={styles.emptyIcon}><FaInbox size={18} /></div>
-                          <h3 style={styles.emptyTitle}>No equipment found</h3>
-                          <p style={styles.emptyText}>Try adjusting your search or filters.</p>
-                          {isItInventory && (
-                            <button className="gl-btn-primary" style={styles.btnPrimary} onClick={onAddItem}>
-                              <FaPlus size={12} /> Add equipment
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredItems.map((item, index) => (
-                      <tr key={item.id} className="gl-row">{renderRowCells(item, index)}</tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        </main>
-      </div>
-
-      {/* Import Excel Modal */}
-      {showImportExcel && (
-        <ImportExcel
-          categoryId={categoryId}
-          categories={categories}
-          onClose={() => setShowImportExcel(false)}
-          onSuccess={() => {
-            if (onRefresh) onRefresh();
-            else window.location.reload();
-          }}
-        />
-      )}
-
-      {/* Category Export Modal */}
-      {showCategoryExportModal && (
-        <div className="modal-overlay" onClick={() => setShowCategoryExportModal(false)}>
-          <div className="modal modal-medium" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
-            <div className="modal-header">
-              <h2>Select Categories to Export</h2>
-              <button className="close-btn" onClick={() => setShowCategoryExportModal(false)}>
-                <FaTimes />
+            <div style={{ position: 'relative' }} ref={exportRef}>
+              <button style={styles.iconOnlyBtn} onClick={() => setShowExportDropdown(!showExportDropdown)} title="Export">
+                <FaFileExport size={13} />
               </button>
+              {showExportDropdown && (
+                <div style={{ ...styles.dropdown, minWidth: '150px' }}>
+                  <button style={styles.exportOption} onClick={handleExportExcel}>Export as Excel</button>
+                  <button style={styles.exportOption} onClick={handleExportPDF}>Export as PDF</button>
+                </div>
+              )}
             </div>
-            <div className="modal-body" style={{ padding: '20px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                <span style={{ fontSize: '14px', fontWeight: 500 }}>Choose categories for {exportType === 'excel' ? 'Excel' : 'PDF'} export</span>
+
+            {isItInventory && (
+              <button className="gl-btn-primary" style={styles.btnPrimary} onClick={onAddItem}>
+                <FaPlus size={12} /> Add equipment
+              </button>
+            )}
+          </div>
+        </header>
+
+        {/* Stat strip */}
+        {isMasterInventory && (
+          <div style={styles.statStrip}>
+            <div style={styles.statBlock}>
+              <span style={styles.statValue}>{String(items.length).padStart(3, '0')}</span>
+              <span style={styles.statLabel}>Assets tracked</span>
+            </div>
+            <div style={styles.statDivider} />
+            <div style={styles.statBlock}>
+              <span style={styles.statValue}>{formatPKR(totalValue)}</span>
+              <span style={styles.statLabel}>Total value</span>
+            </div>
+            <div style={styles.statDivider} />
+            <div style={styles.statBlock}>
+              <span style={styles.statValue}>{String(categories.length).padStart(2, '0')}</span>
+              <span style={styles.statLabel}>Categories</span>
+            </div>
+            <div style={styles.statDivider} />
+            <div style={styles.statBlock}>
+              <span style={{ ...styles.statValue, color: filteredItems.length !== items.length ? TEAL : INK }}>
+                {filteredItems.length}
+              </span>
+              <span style={styles.statLabel}>Matching filters</span>
+            </div>
+          </div>
+        )}
+
+        {/* Category tabs — the manifest's index */}
+        {isMasterInventory && categories.length > 0 && (
+          <div style={styles.tabRow}>
+            <button
+              onClick={() => setActiveTab(null)}
+              style={{ ...styles.tabPill, ...(!activeTab ? styles.tabPillActive : {}) }}
+            >
+              All items
+              <span style={{ ...styles.tabCount, ...(!activeTab ? styles.tabCountActive : {}) }}>{items.length}</span>
+            </button>
+            {categories.map(cat => {
+              const tint = categoryTintMap[cat.id];
+              const isActive = activeTab === cat.id;
+              return (
                 <button
-                  style={{ padding: '4px 12px', fontSize: '12px', border: '1px solid #D1D5DB', borderRadius: '4px', background: 'transparent', cursor: 'pointer' }}
-                  onClick={selectAllExportCategories}
+                  key={cat.id}
+                  onClick={() => handleTabClick(cat.id)}
+                  style={{ ...styles.tabPill, ...(isActive ? { ...styles.tabPillActive, background: tint, borderColor: tint } : {}) }}
                 >
-                  {selectedExportCategories.length === categories.length ? 'Deselect All' : 'Select All'}
+                  <TagGlyph color={isActive ? '#fff' : tint} />
+                  {cat.name}
+                  <span style={{ ...styles.tabCount, ...(isActive ? styles.tabCountActive : {}) }}>{cat.count}</span>
                 </button>
-              </div>
-              <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
-                {categories.map(cat => (
-                  <div
-                    key={cat.id}
-                    style={{
-                      padding: '8px 12px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      gap: '10px',
-                      borderBottom: '1px solid #F3F4F6',
-                      cursor: 'pointer',
-                      background: selectedExportCategories.includes(cat.id) ? '#EEF2FF' : 'transparent',
-                    }}
-                    onClick={() => toggleExportCategory(cat.id)}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={selectedExportCategories.includes(cat.id)}
-                      onChange={() => toggleExportCategory(cat.id)}
-                      style={{ accentColor: ACCENT }}
-                    />
-                    <span>{cat.icon || '📦'} {cat.name}</span>
-                    <span style={{ marginLeft: 'auto', fontSize: '12px', color: '#9CA3AF' }}>{cat.count} items</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-            <div className="form-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', padding: '16px 20px', borderTop: '1px solid #E5E7EB' }}>
-              <button className="btn-cancel" onClick={() => setShowCategoryExportModal(false)}>Cancel</button>
-              <button className="btn-submit" style={styles.btnPrimary} onClick={handleExportWithCategories}>
-                Export {exportType === 'excel' ? 'Excel' : 'PDF'}
+              );
+            })}
+          </div>
+        )}
+
+        {/* Condition filter — secondary row, quieter */}
+        {isMasterInventory && (
+          <div style={styles.conditionRow}>
+            <span style={styles.conditionLabel}>Condition</span>
+            <button
+              onClick={() => setConditionFilter('')}
+              style={{ ...styles.conditionPill, ...(!conditionFilter ? styles.conditionPillActive : {}) }}
+            >
+              Any
+            </button>
+            {CONDITIONS.map(c => (
+              <button
+                key={c}
+                onClick={() => setConditionFilter(conditionFilter === c ? '' : c)}
+                style={{ ...styles.conditionPill, ...(conditionFilter === c ? styles.conditionPillActive : {}) }}
+              >
+                <span style={{ ...styles.conditionPillDot, background: CONDITION_STYLES[c]?.dot || '#9CA3AF' }} />
+                {c}
               </button>
-            </div>
+            ))}
+          </div>
+        )}
+
+        {/* Manifest table */}
+        <div style={styles.tableCard}>
+          <div style={styles.tableScroll}>
+            <table style={styles.table}>
+              <thead>
+                <tr>{renderHeaders()}</tr>
+              </thead>
+              <tbody>
+                {filteredItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={colSpan} style={styles.emptyCell}>
+                      <div style={styles.emptyWrap}>
+                        <div style={styles.emptyIcon}><FaInbox size={18} /></div>
+                        <h3 style={styles.emptyTitle}>No equipment found</h3>
+                        <p style={styles.emptyText}>Try adjusting your search or filters.</p>
+                        {isItInventory && (
+                          <button className="gl-btn-primary" style={styles.btnPrimary} onClick={onAddItem}>
+                            <FaPlus size={12} /> Add equipment
+                          </button>
+                        )}
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredItems.map((item, index) => (
+                    <tr key={item.id} className="gl-row">{renderRowCells(item, index)}</tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
         </div>
-      )}
+      </div>
     </div>
   );
 };
@@ -767,145 +676,60 @@ const InventoryList = ({
 const styles = {
   page: {
     minHeight: '100%',
-    background: '#F6F6F8',
+    background: PAPER,
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   },
-  shell: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: '0',
-    minHeight: '100vh',
+  frame: {
+    maxWidth: '1400px',
+    margin: '0 auto',
+    padding: '20px 28px 48px',
   },
-  sidebar: {
-    width: '220px',
-    flexShrink: 0,
-    padding: '24px 14px',
-    borderRight: '1px solid #EAEAEE',
-    position: 'sticky',
-    top: 0,
-    height: '100vh',
-    overflowY: 'auto',
-    background: '#FBFBFC',
-  },
-  sidebarHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '7px',
-    fontSize: '11px',
-    fontWeight: 700,
-    color: '#9CA3AF',
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-    padding: '0 10px',
-    marginBottom: '8px',
-  },
-  navList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '2px',
-  },
-  navItem: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '8px',
-    height: '34px',
-    padding: '0 10px',
-    borderRadius: '8px',
-    border: 'none',
-    background: 'transparent',
-    fontSize: '13px',
-    fontWeight: 500,
-    color: '#4B5563',
-    cursor: 'pointer',
-    textAlign: 'left',
-  },
-  navItemActive: {
-    background: INK,
-    color: '#fff',
-    fontWeight: 600,
-  },
-  navLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '9px',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  navDot: {
-    width: '6px',
-    height: '6px',
-    borderRadius: '50%',
-    flexShrink: 0,
-  },
-  navCount: {
-    fontSize: '11px',
-    fontWeight: 600,
-    color: '#9CA3AF',
-    flexShrink: 0,
-  },
-  navCountActive: {
-    color: 'rgba(255,255,255,0.7)',
-  },
-  sidebarDivider: {
-    height: '1px',
-    background: '#EAEAEE',
-    margin: '18px 10px',
-  },
-  filterList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '2px',
-  },
-  filterItem: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-    height: '30px',
-    padding: '0 10px',
-    borderRadius: '7px',
-    border: 'none',
-    background: 'transparent',
-    fontSize: '12.5px',
-    color: '#6B7280',
-    cursor: 'pointer',
-    textAlign: 'left',
-  },
-  filterItemActive: {
-    background: '#EEF2FF',
-    color: ACCENT,
-    fontWeight: 600,
-  },
-  filterDot: {
-    width: '6px',
-    height: '6px',
-    borderRadius: '50%',
-    flexShrink: 0,
-  },
-  main: {
-    flex: 1,
-    minWidth: 0,
-    padding: '24px 32px 40px',
-  },
-  mainHeader: {
+
+  /* Top bar */
+  topbar: {
     display: 'flex',
     flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: '14px',
+    gap: '16px',
+    paddingBottom: '18px',
+    borderBottom: `2px solid ${INK}`,
     marginBottom: '18px',
   },
-  listTitle: {
-    fontSize: '19px',
-    fontWeight: 700,
-    color: '#111827',
-    margin: 0,
-    lineHeight: 1.3,
+  brandBlock: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
   },
-  titleSub: {
-    fontSize: '12.5px',
-    color: '#9CA3AF',
+  mark: {
+    width: '38px',
+    height: '38px',
+    borderRadius: '8px',
+    background: INK,
+    color: '#fff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontWeight: 700,
+    fontSize: '13px',
+    letterSpacing: '0.02em',
+    flexShrink: 0,
+  },
+  brandTitle: {
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: '20px',
+    fontWeight: 700,
+    color: INK,
+    margin: 0,
+    lineHeight: 1.25,
+  },
+  brandSub: {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: '11px',
+    color: '#8A8371',
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
     margin: '2px 0 0',
   },
   headerActions: {
@@ -917,12 +741,12 @@ const styles = {
     position: 'relative',
     display: 'flex',
     alignItems: 'center',
-    width: '220px',
+    width: '230px',
   },
   searchIcon: {
     position: 'absolute',
     left: '11px',
-    color: '#9CA3AF',
+    color: '#9C9585',
     pointerEvents: 'none',
   },
   searchInput: {
@@ -930,19 +754,19 @@ const styles = {
     height: '36px',
     padding: '0 12px 0 32px',
     borderRadius: '8px',
-    border: '1px solid #E5E7EB',
+    border: '1px solid #DEDACD',
     background: '#fff',
     fontSize: '13px',
     outline: 'none',
-    color: '#1F2937',
+    color: INK,
   },
   iconOnlyBtn: {
     width: '36px',
     height: '36px',
     borderRadius: '8px',
-    border: '1px solid #E5E7EB',
+    border: '1px solid #DEDACD',
     background: '#fff',
-    color: '#4B5563',
+    color: '#57503F',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -955,7 +779,7 @@ const styles = {
     gap: '7px',
     height: '36px',
     padding: '0 15px',
-    background: ACCENT,
+    background: TEAL,
     color: '#fff',
     border: 'none',
     borderRadius: '8px',
@@ -975,13 +799,13 @@ const styles = {
     overflowY: 'auto',
     zIndex: 20,
     background: '#fff',
-    border: '1px solid #E5E7EB',
-    boxShadow: '0 10px 24px rgba(17,24,39,0.10)',
+    border: '1px solid #E5E1D3',
+    boxShadow: '0 10px 24px rgba(20,22,31,0.12)',
   },
   dropdownHeader: {
     fontSize: '11px',
     fontWeight: 700,
-    color: '#9CA3AF',
+    color: '#9C9585',
     textTransform: 'uppercase',
     letterSpacing: '0.04em',
     padding: '6px 8px',
@@ -992,7 +816,7 @@ const styles = {
     gap: '9px',
     padding: '7px 8px',
     fontSize: '13px',
-    color: '#374151',
+    color: '#3A3626',
     borderRadius: '6px',
     cursor: 'pointer',
   },
@@ -1002,17 +826,136 @@ const styles = {
     textAlign: 'left',
     padding: '9px 10px',
     fontSize: '13px',
-    color: '#374151',
+    color: '#3A3626',
     background: 'transparent',
     border: 'none',
     borderRadius: '6px',
     cursor: 'pointer',
   },
+
+  /* Stat strip */
+  statStrip: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '28px',
+    padding: '14px 20px',
+    marginBottom: '16px',
+    background: INK,
+    borderRadius: '10px',
+    flexWrap: 'wrap',
+  },
+  statBlock: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '3px',
+  },
+  statValue: {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: '17px',
+    fontWeight: 700,
+    color: '#fff',
+  },
+  statLabel: {
+    fontSize: '10.5px',
+    color: '#A9A392',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+  statDivider: {
+    width: '1px',
+    height: '28px',
+    background: 'rgba(255,255,255,0.14)',
+  },
+
+  /* Category tab row */
+  tabRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    overflowX: 'auto',
+    paddingBottom: '4px',
+    marginBottom: '10px',
+  },
+  tabPill: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '7px',
+    height: '34px',
+    padding: '0 13px',
+    borderRadius: '8px',
+    border: '1px solid #DEDACD',
+    background: '#fff',
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#3A3626',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+  },
+  tabPillActive: {
+    background: INK,
+    borderColor: INK,
+    color: '#fff',
+    fontWeight: 600,
+  },
+  tabCount: {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: '11px',
+    fontWeight: 600,
+    color: '#9C9585',
+  },
+  tabCountActive: {
+    color: 'rgba(255,255,255,0.75)',
+  },
+
+  /* Condition row */
+  conditionRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    marginBottom: '18px',
+    flexWrap: 'wrap',
+  },
+  conditionLabel: {
+    fontSize: '11px',
+    fontWeight: 700,
+    color: '#9C9585',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    marginRight: '4px',
+  },
+  conditionPill: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '6px',
+    height: '26px',
+    padding: '0 10px',
+    borderRadius: '13px',
+    border: '1px solid transparent',
+    background: 'transparent',
+    fontSize: '12px',
+    color: '#6B6353',
+    cursor: 'pointer',
+  },
+  conditionPillActive: {
+    background: '#fff',
+    border: '1px solid #DEDACD',
+    color: INK,
+    fontWeight: 600,
+  },
+  conditionPillDot: {
+    width: '6px',
+    height: '6px',
+    borderRadius: '50%',
+    flexShrink: 0,
+  },
+
+  /* Table */
   tableCard: {
     borderRadius: '12px',
     overflow: 'hidden',
     background: '#fff',
-    border: '1px solid #ECEDF1',
+    border: '1px solid #E5E1D3',
   },
   tableScroll: {
     overflowX: 'auto',
@@ -1025,35 +968,33 @@ const styles = {
   th: {
     textAlign: 'left',
     padding: '11px 16px',
-    background: '#FAFAFB',
-    color: '#9CA3AF',
-    fontWeight: 600,
-    fontSize: '11px',
+    background: '#FAF8F3',
+    color: '#9C9585',
+    fontWeight: 700,
+    fontSize: '10.5px',
     textTransform: 'uppercase',
-    letterSpacing: '0.03em',
-    borderBottom: '1px solid #ECEDF1',
+    letterSpacing: '0.05em',
+    borderBottom: '1px solid #E5E1D3',
     whiteSpace: 'nowrap',
   },
   td: {
     padding: '12px 16px',
-    borderBottom: '1px solid #F3F4F6',
-    color: '#374151',
+    borderBottom: '1px solid #F1EEE6',
+    color: '#3A3626',
     whiteSpace: 'nowrap',
   },
-  dash: { color: '#D1D5DB' },
+  tdMono: {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: '12.5px',
+  },
+  dash: { color: '#D2CDBD' },
   categoryTag: {
     display: 'inline-flex',
     alignItems: 'center',
-    gap: '6px',
+    gap: '7px',
     fontSize: '12.5px',
     fontWeight: 600,
-    color: '#4B5563',
-  },
-  categoryDot: {
-    width: '7px',
-    height: '7px',
-    borderRadius: '50%',
-    flexShrink: 0,
+    color: '#3A3626',
   },
   conditionBadge: {
     display: 'inline-flex',
@@ -1069,8 +1010,8 @@ const styles = {
     height: '5px',
     borderRadius: '50%',
   },
-  price: { fontWeight: 600, color: '#111827' },
-  assetLink: { fontWeight: 600, color: ACCENT },
+  price: { fontWeight: 700, color: INK },
+  assetLink: { fontWeight: 600, color: TEAL },
   actionRow: {
     display: 'flex',
     gap: '4px',
@@ -1082,7 +1023,7 @@ const styles = {
     borderRadius: '7px',
     border: 'none',
     background: 'transparent',
-    color: '#9CA3AF',
+    color: '#9C9585',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1099,15 +1040,15 @@ const styles = {
     width: '48px',
     height: '48px',
     borderRadius: '12px',
-    background: '#F3F4F6',
-    color: '#9CA3AF',
+    background: '#F1EEE6',
+    color: '#9C9585',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: '6px',
   },
-  emptyTitle: { fontSize: '14.5px', fontWeight: 700, color: '#1F2937', margin: 0 },
-  emptyText: { fontSize: '13px', color: '#9CA3AF', margin: '0 0 10px' },
+  emptyTitle: { fontSize: '14.5px', fontWeight: 700, color: INK, margin: 0 },
+  emptyText: { fontSize: '13px', color: '#9C9585', margin: '0 0 10px' },
   loadingWrap: {
     display: 'flex',
     flexDirection: 'column',
@@ -1119,32 +1060,30 @@ const styles = {
   spinner: {
     width: '30px',
     height: '30px',
-    border: '3px solid #E5E7EB',
-    borderTopColor: ACCENT,
+    border: '3px solid #E5E1D3',
+    borderTopColor: TEAL,
     borderRadius: '50%',
     animation: 'gl-spin 0.8s linear infinite',
   },
-  loadingText: { color: '#6B7280', fontSize: '14px', margin: 0 },
+  loadingText: { color: '#6B6353', fontSize: '14px', margin: 0 },
 };
 
 const sheet = `
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
+
 @keyframes gl-spin { to { transform: rotate(360deg); } }
 
 .gl-row { transition: background 0.12s ease; }
-.gl-row:hover { background: #FAFAFB; }
+.gl-row:hover { background: #FAF8F3; }
 .gl-btn-primary { transition: opacity 0.15s ease; }
 .gl-btn-primary:hover { opacity: 0.9; }
 .gl-icon-btn { transition: all 0.12s ease; }
-.gl-icon-view:hover { background: #EFF6FF !important; color: #0284C7 !important; }
-.gl-icon-edit:hover { background: #FFFBEB !important; color: #D97706 !important; }
-.gl-icon-delete:hover { background: #FEF2F2 !important; color: #E11D48 !important; }
-.gl-checkbox-row:hover { background: #F9FAFB; }
-input[type=text]::placeholder { color: #9CA3AF; }
-input:focus { border-color: #4F46E5 !important; box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
-
-@media (max-width: 900px) {
-  .gl-sidebar { display: none; }
-}
+.gl-icon-view:hover { background: #EAF1F4 !important; color: #1F6F78 !important; }
+.gl-icon-edit:hover { background: #FBF3E3 !important; color: #C08A1E !important; }
+.gl-icon-delete:hover { background: #FBEDEA !important; color: #B4442B !important; }
+.gl-checkbox-row:hover { background: #FAF8F3; }
+input[type=text]::placeholder { color: #9C9585; }
+input:focus { border-color: #1F6F78 !important; box-shadow: 0 0 0 3px rgba(31,111,120,0.12); }
 `;
 
 export default InventoryList;
