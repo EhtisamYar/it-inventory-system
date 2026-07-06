@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { FaTimes } from 'react-icons/fa';
 
-const AddItem = ({ onClose, onAdd, types }) => {
+const AddItem = ({ onClose, onAdd, types, defaultCategoryId = null }) => {
   const [formData, setFormData] = useState({
-    type_id: '',
+    type_id: defaultCategoryId || '',
     name: '',
     brand: '',
     model: '',
@@ -19,7 +19,7 @@ const AddItem = ({ onClose, onAdd, types }) => {
     warranty_until: '',
     assigned_to: '',
     location: '',
-    email: '',          // ✅ Added email
+    email: '',
     notes: ''
   });
   const [loading, setLoading] = useState(false);
@@ -42,6 +42,9 @@ const AddItem = ({ onClose, onAdd, types }) => {
     setLoading(false);
   };
 
+  // Determine if category dropdown should be disabled
+  const isCategoryDisabled = !!defaultCategoryId;
+
   return (
     <div className="modal-overlay">
       <div className="modal modal-large">
@@ -61,6 +64,8 @@ const AddItem = ({ onClose, onAdd, types }) => {
                 value={formData.type_id}
                 onChange={handleChange}
                 required
+                disabled={isCategoryDisabled}
+                style={isCategoryDisabled ? { background: '#f5f5f5', cursor: 'not-allowed' } : {}}
               >
                 <option value="">Select Category</option>
                 {types.map((type) => (
@@ -69,6 +74,11 @@ const AddItem = ({ onClose, onAdd, types }) => {
                   </option>
                 ))}
               </select>
+              {isCategoryDisabled && (
+                <small style={{ color: '#6B7280', display: 'block', marginTop: '4px' }}>
+                  Category is auto‑selected (you are in this category view).
+                </small>
+              )}
             </div>
             <div className="form-group">
               <label>Item Name *</label>

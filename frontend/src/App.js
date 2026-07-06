@@ -367,6 +367,16 @@ function App() {
     return type ? type.name : 'Inventory';
   };
 
+  // Helper to determine if we are in a specific category view
+  const isSpecificCategory = () => {
+    return selectedType && 
+           selectedType !== 'master' && 
+           selectedType !== 'it-inventory' && 
+           selectedType !== 'assignment' && 
+           selectedType !== 'service' && 
+           selectedType !== 'returns';
+  };
+
   return (
     <div className="app">
       <Sidebar 
@@ -379,7 +389,7 @@ function App() {
           <AddType 
             onClose={() => setShowAddType(false)}
             onAdd={handleAddType}
-            existingTypes={inventoryTypes}   // ✅ Pass existing types for duplicate check & display
+            existingTypes={inventoryTypes}
           />
         )}
         
@@ -388,6 +398,7 @@ function App() {
             onClose={() => setShowAddItem(false)}
             onAdd={handleAddItem}
             types={inventoryTypes}
+            defaultCategoryId={isSpecificCategory() ? selectedType : null}   // ✅ auto‑select category
           />
         )}
 
@@ -436,7 +447,7 @@ function App() {
             isMaster={selectedType === 'master' || selectedType === 'it-inventory'}
             isItInventory={selectedType === 'it-inventory'}
             types={inventoryTypes}
-            categoryId={selectedType !== 'master' && selectedType !== 'it-inventory' ? selectedType : null}
+            categoryId={isSpecificCategory() ? selectedType : null}
             categoryName={getCategoryName()}
             onRefresh={handleRefresh}
           />

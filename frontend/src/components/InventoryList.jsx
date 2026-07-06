@@ -1,12 +1,12 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   FaPlus, FaTrash, FaSearch, FaEye, FaEdit, FaColumns, FaTimes, FaInbox,
-  FaChevronDown, FaLayerGroup, FaFileExport, FaFileExcel  // ← added FaFileExcel
+  FaChevronDown, FaLayerGroup, FaFileExport, FaFileExcel
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
-import ImportExcel from './ImportExcel';  // ← new import
+import ImportExcel from './ImportExcel';
 
 const formatPKR = (amount) => {
   if (!amount) return 'Rs 0';
@@ -34,7 +34,6 @@ const COLUMN_DEFS = {
   asset: { label: 'Asset', always: false },
   assetCode: { label: 'Asset Code', always: false },
   condition: { label: 'Condition', always: false },
-  remarks: { label: 'Remarks', always: false },
   location: { label: 'Location', always: false },
   department: { label: 'Department', always: false },
   email: { label: 'Email', always: false },
@@ -42,12 +41,7 @@ const COLUMN_DEFS = {
   employeeId: { label: 'Employee ID', always: false },
   designation: { label: 'Designation', always: false },
   dateOfIssuance: { label: 'Date of Issuance', always: false },
-};
-
-const CATEGORY_COLUMN_PRESETS = {
-  'Printers': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
-  'Copiers': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
-  'Scanners': ['brand', 'model', 'serial', 'assignedTo', 'assetCode'],
+  remarks: { label: 'Remarks', always: false },
 };
 
 const DEFAULT_VISIBLE = Object.keys(COLUMN_DEFS).reduce((acc, key) => {
@@ -83,22 +77,26 @@ const InventoryList = ({
   isMaster,
   isItInventory,
   types,
-  categoryId,      // ← new: to pass to import modal
-  onRefresh,       // ← new: to refresh after import
+  categoryId,
+  onRefresh,
 }) => {
   const [activeTab, setActiveTab] = useState(null);
   const [conditionFilter, setConditionFilter] = useState('');
   const [showColumnDropdown, setShowColumnDropdown] = useState(false);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
-  const [showImportDropdown, setShowImportDropdown] = useState(false);  // ← new
-  const [showImportExcel, setShowImportExcel] = useState(false);        // ← new
+  const [showImportDropdown, setShowImportDropdown] = useState(false);
+  const [showImportExcel, setShowImportExcel] = useState(false);
+  const [showCategoryExportModal, setShowCategoryExportModal] = useState(false);
+  const [selectedExportCategories, setSelectedExportCategories] = useState([]);
+  const [exportType, setExportType] = useState('excel'); // 'excel' or 'pdf'
   const columnRef = useRef(null);
   const exportRef = useRef(null);
-  const importRef = useRef(null);  // ← new
+  const importRef = useRef(null);
 
   const isMasterInventory = isMaster || title === 'Master Inventory' || title === 'IT Inventory (Unassigned)';
   const isTrueMaster = isMaster && !isItInventory;
 
+  // ---------- Column Visibility ----------
   const getDefaultVisible = () => {
     const stored = localStorage.getItem('inventory_columns');
     if (stored) {
@@ -119,6 +117,10 @@ const InventoryList = ({
   useEffect(() => {
     localStorage.setItem('inventory_columns', JSON.stringify(visibleColumns));
   }, [visibleColumns]);
+
+  const toggleColumn = (key) => {
+    setVisibleColumns(prev => ({ ...prev, [key]: !prev[key] }));
+  };
 
   const getCategoriesFromItems = () => {
     const map = {};
@@ -155,57 +157,57 @@ const InventoryList = ({
     categoryTintMap[cat.id] = getTint(idx);
   });
 
-  useEffect(() => {
+  // ---------- Export Category Selection Modal ----------
+  const openCategoryExportModal = (type) => {
+    let defaultSelected = categories.map(c => c.id);
     if (activeTab) {
-      const category = categories.find(c => c.id === activeTab);
-      if (category) {
-        const preset = CATEGORY_COLUMN_PRESETS[category.name];
-        if (preset) {
-          const newVisibility = {};
-          Object.keys(COLUMN_DEFS).forEach(key => {
-            newVisibility[key] = preset.includes(key);
-          });
-          setVisibleColumns(newVisibility);
-          localStorage.setItem('inventory_columns', JSON.stringify(newVisibility));
-        }
-      }
+      defaultSelected = [activeTab];
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeTab]);
-
-  useEffect(() => {
-    const handleClickOutside = (event) => {
-      if (columnRef.current && !columnRef.current.contains(event.target)) {
-        setShowColumnDropdown(false);
-      }
-      if (exportRef.current && !exportRef.current.contains(event.target)) {
-        setShowExportDropdown(false);
-      }
-      if (importRef.current && !importRef.current.contains(event.target)) {  // ← new
-        setShowImportDropdown(false);
-      }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  const toggleColumn = (key) => {
-    setVisibleColumns(prev => ({ ...prev, [key]: !prev[key] }));
+    setSelectedExportCategories(defaultSelected);
+    setExportType(type);
+    setShowCategoryExportModal(true);
+    setShowExportDropdown(false);
   };
 
-  const getColumnKeys = () => {
-    const base = [
-      'brand', 'model', 'serial', 'specs', 'qty', 'price',
-      'asset', 'assetCode', 'condition', 'remarks', 'location',
-      'department', 'email'
-    ];
-    if (isMasterInventory) base.unshift('category');
-    if (isTrueMaster) base.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
-    return base.filter(key => COLUMN_DEFS[key]);
+  const toggleExportCategory = (catId) => {
+    setSelectedExportCategories(prev =>
+      prev.includes(catId) ? prev.filter(id => id !== catId) : [...prev, catId]
+    );
   };
-  const availableColumns = getColumnKeys();
 
-  const getCategoryGroups = (allItems) => {
+  const selectAllExportCategories = () => {
+    if (selectedExportCategories.length === categories.length) {
+      setSelectedExportCategories([]);
+    } else {
+      setSelectedExportCategories(categories.map(c => c.id));
+    }
+  };
+
+  const getFilteredItemsForExport = (selectedCatIds) => {
+    if (selectedCatIds.length === 0) return [];
+    return items.filter(item => selectedCatIds.includes(item.type_id));
+  };
+
+  const handleExportWithCategories = () => {
+    if (selectedExportCategories.length === 0) {
+      alert('Please select at least one category.');
+      return;
+    }
+    const exportItems = getFilteredItemsForExport(selectedExportCategories);
+    if (exportItems.length === 0) {
+      alert('No items found for the selected categories.');
+      return;
+    }
+    setShowCategoryExportModal(false);
+    if (exportType === 'excel') {
+      handleExportExcel(exportItems);
+    } else {
+      handleExportPDF(exportItems);
+    }
+  };
+
+  // ----- Refactored Export Logic -----
+  const getCategoryGroupsForExport = (allItems) => {
     const groups = {};
     allItems.forEach(item => {
       const key = item.type_id || 'uncategorized';
@@ -222,15 +224,6 @@ const InventoryList = ({
     return Object.values(groups).sort((a, b) => a.name.localeCompare(b.name));
   };
 
-  const columnOrder = [
-    'brand', 'model', 'serial', 'specs', 'qty', 'price',
-    'asset', 'assetCode', 'condition', 'remarks', 'location',
-    'department', 'email'
-  ];
-  if (isTrueMaster) {
-    columnOrder.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
-  }
-
   const buildValueMap = (item) => ({
     brand: item.brand || '',
     model: item.model || '',
@@ -241,7 +234,6 @@ const InventoryList = ({
     asset: item.asset || '',
     assetCode: item.asset_code || '',
     condition: item.condition || '',
-    remarks: item.remarks || '',
     location: item.location || '',
     department: item.department || '',
     email: item.email || '',
@@ -249,12 +241,39 @@ const InventoryList = ({
     employeeId: item.employee_id || '',
     designation: item.designation || '',
     dateOfIssuance: formatDate(item.date_of_issuance),
+    remarks: item.remarks || '',
   });
 
-  const handleExportExcel = () => {
+  const getColumnOrder = () => {
+    const order = [
+      'brand', 'model', 'serial', 'specs', 'qty', 'price',
+      'asset', 'assetCode', 'condition', 'location',
+      'department', 'email'
+    ];
+    if (isMasterInventory) order.unshift('category');
+    if (isTrueMaster) order.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
+    order.push('remarks');
+    return order;
+  };
+  const columnOrder = getColumnOrder();
+
+  const getAvailableColumnKeys = () => {
+    const base = [
+      'brand', 'model', 'serial', 'specs', 'qty', 'price',
+      'asset', 'assetCode', 'condition', 'location',
+      'department', 'email'
+    ];
+    if (isMasterInventory) base.unshift('category');
+    if (isTrueMaster) base.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
+    base.push('remarks');
+    return base.filter(key => COLUMN_DEFS[key]);
+  };
+  const availableColumns = getAvailableColumnKeys();
+
+  const handleExportExcel = (exportItems = items) => {
     setShowExportDropdown(false);
-    const allItems = items;
-    const groups = getCategoryGroups(allItems);
+    const allItems = exportItems;
+    const groups = getCategoryGroupsForExport(allItems);
     const filename = title || 'Inventory';
 
     const buildHeaders = () => {
@@ -290,10 +309,10 @@ const InventoryList = ({
     XLSX.writeFile(wb, `${filename}.xlsx`);
   };
 
-  const handleExportPDF = () => {
+  const handleExportPDF = (exportItems = items) => {
     setShowExportDropdown(false);
-    const allItems = items;
-    const groups = getCategoryGroups(allItems);
+    const allItems = exportItems;
+    const groups = getCategoryGroupsForExport(allItems);
     const filename = title || 'Inventory';
 
     const doc = new jsPDF('landscape', 'mm', 'a4');
@@ -340,6 +359,24 @@ const InventoryList = ({
     doc.save(`${filename}.pdf`);
   };
 
+  // ---------- Export dropdown handlers ----------
+  const handleExportExcelClick = () => {
+    if (isMasterInventory) {
+      openCategoryExportModal('excel');
+    } else {
+      handleExportExcel(items);
+    }
+  };
+
+  const handleExportPDFClick = () => {
+    if (isMasterInventory) {
+      openCategoryExportModal('pdf');
+    } else {
+      handleExportPDF(items);
+    }
+  };
+
+  // ---------- Render Helpers ----------
   const renderHeaders = () => {
     const headers = [<th key="#" style={styles.th}>#</th>];
     if (isMasterInventory && visibleColumns.category) {
@@ -390,7 +427,6 @@ const InventoryList = ({
       asset: <span style={styles.assetLink}>{item.asset || '-'}</span>,
       assetCode: item.asset_code || dash,
       condition: getConditionBadge(item.condition),
-      remarks: item.remarks || dash,
       location: item.location || dash,
       department: item.department || dash,
       email: item.email || dash,
@@ -398,24 +434,32 @@ const InventoryList = ({
       employeeId: item.employee_id || dash,
       designation: item.designation || dash,
       dateOfIssuance: formatDate(item.date_of_issuance),
+      remarks: item.remarks || dash,
     };
     columnOrder.forEach(key => {
       if (availableColumns.includes(key) && visibleColumns[key]) {
         cells.push(<td key={`${item.id}-${key}`} style={styles.td}>{valueMap[key]}</td>);
       }
     });
+
+    const showEditDelete = isItInventory;
+
     cells.push(
       <td key={`${item.id}-actions`} style={{ ...styles.td, textAlign: 'right' }}>
         <div style={styles.actionRow}>
           <button className="gl-icon-btn gl-icon-view" style={styles.iconBtn} onClick={() => onViewItem && onViewItem(item)} title="View">
             <FaEye size={12} />
           </button>
-          <button className="gl-icon-btn gl-icon-edit" style={styles.iconBtn} onClick={() => onEditItem && onEditItem(item)} title="Edit">
-            <FaEdit size={12} />
-          </button>
-          <button className="gl-icon-btn gl-icon-delete" style={styles.iconBtn} onClick={() => onDeleteItem(item.id)} title="Delete">
-            <FaTrash size={12} />
-          </button>
+          {showEditDelete && (
+            <>
+              <button className="gl-icon-btn gl-icon-edit" style={styles.iconBtn} onClick={() => onEditItem && onEditItem(item)} title="Edit">
+                <FaEdit size={12} />
+              </button>
+              <button className="gl-icon-btn gl-icon-delete" style={styles.iconBtn} onClick={() => onDeleteItem(item.id)} title="Delete">
+                <FaTrash size={12} />
+              </button>
+            </>
+          )}
         </div>
       </td>
     );
@@ -473,7 +517,6 @@ const InventoryList = ({
       <style>{sheet}</style>
 
       <div style={styles.shell}>
-        {/* Sidebar — category navigation lives here now, out of the way of the data */}
         {isMasterInventory && categories.length > 0 && (
           <aside style={styles.sidebar}>
             <div style={styles.sidebarHeader}>
@@ -533,7 +576,6 @@ const InventoryList = ({
           </aside>
         )}
 
-        {/* Main workspace */}
         <main style={styles.main}>
           <div style={styles.mainHeader}>
             <div>
@@ -584,13 +626,13 @@ const InventoryList = ({
                 </button>
                 {showExportDropdown && (
                   <div style={{ ...styles.dropdown, minWidth: '150px' }}>
-                    <button style={styles.exportOption} onClick={handleExportExcel}>Export as Excel</button>
-                    <button style={styles.exportOption} onClick={handleExportPDF}>Export as PDF</button>
+                    <button style={styles.exportOption} onClick={handleExportExcelClick}>Export as Excel</button>
+                    <button style={styles.exportOption} onClick={handleExportPDFClick}>Export as PDF</button>
                   </div>
                 )}
               </div>
 
-              {/* ===== NEW: Import dropdown ===== */}
+              {/* Import dropdown */}
               <div style={{ position: 'relative' }} ref={importRef}>
                 <button style={styles.iconOnlyBtn} onClick={() => setShowImportDropdown(!showImportDropdown)} title="Import">
                   <FaFileExcel size={13} />
@@ -649,11 +691,11 @@ const InventoryList = ({
         </main>
       </div>
 
-      {/* ===== Import Excel Modal ===== */}
+      {/* Import Excel Modal */}
       {showImportExcel && (
         <ImportExcel
           categoryId={categoryId}
-          categories={categories}   // pass categories for dropdown (if no categoryId)
+          categories={categories}
           onClose={() => setShowImportExcel(false)}
           onSuccess={() => {
             if (onRefresh) onRefresh();
@@ -661,11 +703,66 @@ const InventoryList = ({
           }}
         />
       )}
+
+      {/* Category Export Modal */}
+      {showCategoryExportModal && (
+        <div className="modal-overlay" onClick={() => setShowCategoryExportModal(false)}>
+          <div className="modal modal-medium" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '500px' }}>
+            <div className="modal-header">
+              <h2>Select Categories to Export</h2>
+              <button className="close-btn" onClick={() => setShowCategoryExportModal(false)}>
+                <FaTimes />
+              </button>
+            </div>
+            <div className="modal-body" style={{ padding: '20px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                <span style={{ fontSize: '14px', fontWeight: 500 }}>Choose categories for {exportType === 'excel' ? 'Excel' : 'PDF'} export</span>
+                <button
+                  style={{ padding: '4px 12px', fontSize: '12px', border: '1px solid #D1D5DB', borderRadius: '4px', background: 'transparent', cursor: 'pointer' }}
+                  onClick={selectAllExportCategories}
+                >
+                  {selectedExportCategories.length === categories.length ? 'Deselect All' : 'Select All'}
+                </button>
+              </div>
+              <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
+                {categories.map(cat => (
+                  <div
+                    key={cat.id}
+                    style={{
+                      padding: '8px 12px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      gap: '10px',
+                      borderBottom: '1px solid #F3F4F6',
+                      cursor: 'pointer',
+                      background: selectedExportCategories.includes(cat.id) ? '#EEF2FF' : 'transparent',
+                    }}
+                    onClick={() => toggleExportCategory(cat.id)}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedExportCategories.includes(cat.id)}
+                      onChange={() => toggleExportCategory(cat.id)}
+                      style={{ accentColor: ACCENT }}
+                    />
+                    <span>{cat.icon || '📦'} {cat.name}</span>
+                    <span style={{ marginLeft: 'auto', fontSize: '12px', color: '#9CA3AF' }}>{cat.count} items</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="form-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', padding: '16px 20px', borderTop: '1px solid #E5E7EB' }}>
+              <button className="btn-cancel" onClick={() => setShowCategoryExportModal(false)}>Cancel</button>
+              <button className="btn-submit" style={styles.btnPrimary} onClick={handleExportWithCategories}>
+                Export {exportType === 'excel' ? 'Excel' : 'PDF'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
-
-
 
 const styles = {
   page: {
@@ -679,8 +776,6 @@ const styles = {
     gap: '0',
     minHeight: '100vh',
   },
-
-  /* Sidebar */
   sidebar: {
     width: '220px',
     flexShrink: 0,
@@ -788,8 +883,6 @@ const styles = {
     borderRadius: '50%',
     flexShrink: 0,
   },
-
-  /* Main */
   main: {
     flex: 1,
     minWidth: 0,
@@ -915,8 +1008,6 @@ const styles = {
     borderRadius: '6px',
     cursor: 'pointer',
   },
-
-  /* Table */
   tableCard: {
     borderRadius: '12px',
     overflow: 'hidden',
