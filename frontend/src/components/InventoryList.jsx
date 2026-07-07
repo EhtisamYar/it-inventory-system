@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
   FaPlus, FaTrash, FaSearch, FaEye, FaEdit, FaColumns, FaTimes, FaInbox,
-  FaChevronDown, FaLayerGroup, FaFileExport
+  FaLayerGroup, FaFileExport
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -55,12 +55,10 @@ const DEFAULT_VISIBLE = Object.keys(COLUMN_DEFS).reduce((acc, key) => {
 }, {});
 
 // ---- Design tokens -------------------------------------------------------
-// A "manifest" aesthetic: the tool tracks physical, tagged assets, so the
-// UI borrows from ledgers and shipping tags rather than a generic SaaS dashboard.
 const INK = '#14161F';
 const PAPER = '#F2F0EA';
-const TEAL = '#1F6F78';     // primary accent — steady, industrial, not the usual violet/terracotta
-const AMBER = '#C08A1E';    // secondary accent — used sparingly, tag-string color
+const TEAL = '#1F6F78';
+const AMBER = '#C08A1E';
 const CATEGORY_TINTS = ['#1F6F78', '#B45309', '#5B4B8A', '#0F766E', '#9A3412', '#4D5B8A', '#7C5A2A', '#3F6B3A'];
 const getTint = (index) => CATEGORY_TINTS[index % CATEGORY_TINTS.length];
 
@@ -74,8 +72,6 @@ const CONDITION_STYLES = {
 
 const CONDITIONS = ['New', 'Refurbed', 'Damaged', 'Used', 'Condemned'];
 
-// A small "hang tag" glyph — the signature motif. Each category reads like a
-// physical inventory tag (punched hole + string) rather than a flat color dot.
 const TagGlyph = ({ color }) => (
   <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
     <path
@@ -106,6 +102,7 @@ const InventoryList = ({
   isMaster,
   isItInventory,
   types,
+  showCategoryTabs = false,   // ✅ NEW: enables category tabs for non‑master views (e.g., Condemned)
 }) => {
   const [activeTab, setActiveTab] = useState(null);
   const [conditionFilter, setConditionFilter] = useState('');
@@ -116,26 +113,7 @@ const InventoryList = ({
   const isMasterInventory = isMaster || title === 'Master Inventory' || title === 'IT Inventory (Unassigned)';
   const isTrueMaster = isMaster && !isItInventory;
 
-  const getDefaultVisible = () => {
-    const stored = localStorage.getItem('inventory_columns');
-    if (stored) {
-      try {
-        const parsed = JSON.parse(stored);
-        const merged = {};
-        Object.keys(COLUMN_DEFS).forEach(key => {
-          merged[key] = parsed[key] !== undefined ? parsed[key] : true;
-        });
-        return merged;
-      } catch {}
-    }
-    return { ...DEFAULT_VISIBLE };
-  };
-  const [visibleColumns, setVisibleColumns] = useState(getDefaultVisible);
-
-  useEffect(() => {
-    localStorage.setItem('inventory_columns', JSON.stringify(visibleColumns));
-  }, [visibleColumns]);
-
+  // ---------- Compute categories ----------
   const getCategoriesFromItems = () => {
     const map = {};
     items.forEach(item => {
@@ -153,8 +131,8 @@ const InventoryList = ({
   };
 
   let categories = [];
-  if (isMasterInventory) {
-    if (types && types.length > 0) {
+  if (isMasterInventory || showCategoryTabs) {   // ✅ show categories for both master and condemned
+    if (types && types.length > 0 && isMasterInventory) {
       categories = types.map(type => ({
         id: type.id,
         name: type.name,
@@ -170,6 +148,28 @@ const InventoryList = ({
   categories.forEach((cat, idx) => {
     categoryTintMap[cat.id] = getTint(idx);
   });
+
+  // ---------- Column visibility ----------
+  const getDefaultVisible = () => {
+    const stored = localStorage.getItem('inventory_columns');
+    if (stored) {
+      try {
+        const parsed = JSON.parse(stored);
+        const merged = {};
+        Object.keys(COLUMN_DEFS).forEach(key => {
+          merged[key] = parsed[key] !== undefined ? parsed[key] : true;
+        });
+        return merged;
+      } catch {}
+    }
+    return { ...DEFAULT_VISIBLE };
+  };
+
+  const [visibleColumns, setVisibleColumns] = useState(getDefaultVisible);
+
+  useEffect(() => {
+    localStorage.setItem('inventory_columns', JSON.stringify(visibleColumns));
+  }, [visibleColumns]);
 
   useEffect(() => {
     if (activeTab) {
@@ -558,7 +558,7 @@ const InventoryList = ({
           </div>
         </header>
 
-        {/* Stat strip */}
+        {/* Stat strip — only for master */}
         {isMasterInventory && (
           <div style={styles.statStrip}>
             <div style={styles.statBlock}>
@@ -585,8 +585,8 @@ const InventoryList = ({
           </div>
         )}
 
-        {/* Category tabs — the manifest's index */}
-        {isMasterInventory && categories.length > 0 && (
+        {/* Category tabs — show for Master OR when showCategoryTabs is true (e.g., Condemned) */}
+        {(isMasterInventory || showCategoryTabs) && categories.length > 0 && (
           <div style={styles.tabRow}>
             <button
               onClick={() => setActiveTab(null)}
@@ -613,7 +613,7 @@ const InventoryList = ({
           </div>
         )}
 
-        {/* Condition filter — secondary row, quieter */}
+        {/* Condition filter — only for master */}
         {isMasterInventory && (
           <div style={styles.conditionRow}>
             <span style={styles.conditionLabel}>Condition</span>
@@ -672,6 +672,8 @@ const InventoryList = ({
     </div>
   );
 };
+
+// ---------- Styles ----------
 
 const styles = {
   page: {

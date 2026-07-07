@@ -13,6 +13,14 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString('en-GB');
 };
 
+// ---------- Design tokens – matches AssetAssignment ----------
+const PAPER = '#F2F0EA';
+const INK = '#14161F';
+const TEAL = '#1F6F78';
+const AMBER = '#C08A1E';
+const CATEGORY_TINTS = ['#1F6F78', '#B45309', '#5B4B8A', '#0F766E', '#9A3412', '#4D5B8A', '#7C5A2A', '#3F6B3A'];
+const getTint = (index) => CATEGORY_TINTS[index % CATEGORY_TINTS.length];
+
 // ---------- Column Definitions ----------
 const COLUMN_DEFS = {
   item: { label: 'Item', always: false },
@@ -33,11 +41,23 @@ const DEFAULT_VISIBLE = Object.keys(COLUMN_DEFS).reduce((acc, key) => {
   return acc;
 }, {});
 
-// ---------- Style constants (matching InventoryList) ----------
-const ACCENT = '#4F46E5';
-const INK = '#14161F';
-const CATEGORY_TINTS = ['#4F46E5', '#0D9488', '#B45309', '#BE185D', '#0369A1', '#4D7C0F', '#7C3AED', '#C2410C'];
-const getTint = (index) => CATEGORY_TINTS[index % CATEGORY_TINTS.length];
+// ---------- Tag glyph (same as AssetAssignment) ----------
+const TagGlyph = ({ color }) => (
+  <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+    <path
+      d="M1.2 6.4 L6.4 1.2 a1.3 1.3 0 0 1 1.8 0 l4.6 4.6 a1.3 1.3 0 0 1 0 1.8 l-5.2 5.2 a1.3 1.3 0 0 1-1.8 0 L1.2 8.2 a1.3 1.3 0 0 1 0-1.8 Z"
+      fill={color}
+      opacity="0.16"
+    />
+    <path
+      d="M1.2 6.4 L6.4 1.2 a1.3 1.3 0 0 1 1.8 0 l4.6 4.6 a1.3 1.3 0 0 1 0 1.8 l-5.2 5.2 a1.3 1.3 0 0 1-1.8 0 L1.2 8.2 a1.3 1.3 0 0 1 0-1.8 Z"
+      fill="none"
+      stroke={color}
+      strokeWidth="1"
+    />
+    <circle cx="4.6" cy="4.6" r="1" fill={color} />
+  </svg>
+);
 
 const ServiceMaintenance = () => {
   const [items, setItems] = useState([]);
@@ -295,7 +315,7 @@ const ServiceMaintenance = () => {
       body: tableData,
       startY: 25,
       styles: { fontSize: 8, font: 'helvetica' },
-      headStyles: { fillColor: [79, 70, 229], font: 'helvetica' },
+      headStyles: { fillColor: [31, 111, 120], font: 'helvetica' }, // TEAL
       margin: { left: 10, right: 10 },
     });
     doc.save(`Service_History_${selectedItem.name.replace(/\s+/g, '_')}.pdf`);
@@ -353,7 +373,7 @@ const ServiceMaintenance = () => {
       body: tableData,
       startY: 25,
       styles: { fontSize: 8, font: 'helvetica' },
-      headStyles: { fillColor: [79, 70, 229], font: 'helvetica' },
+      headStyles: { fillColor: [31, 111, 120], font: 'helvetica' },
       margin: { left: 10, right: 10 },
     });
     doc.save('Service_Maintenance.pdf');
@@ -373,14 +393,14 @@ const ServiceMaintenance = () => {
   };
 
   const renderRowCells = (item, index) => {
-    const cells = [<td key={`${item.id}-num`} style={{ ...styles.td, color: '#C1C4CC' }}>{index + 1}</td>];
+    const cells = [<td key={`${item.id}-num`} style={{ ...styles.td, color: '#B9B3A4' }}>{String(index + 1).padStart(3, '0')}</td>];
     const order = ['item', 'category', 'serial', 'specs', 'asset', 'location', 'department', 'schedule', 'lastService', 'nextService', 'status'];
     const dash = <span style={styles.dash}>-</span>;
-    const tint = item.type_id ? getTint(item.type_id) : '#6B7280';
+    const tint = item.type_id ? getTint(item.type_id) : '#6B6353';
     const valueMap = {
       item: <strong>{item.name}</strong>,
-      category: <span style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', fontSize: '12.5px', fontWeight: 600, color: '#4B5563' }}>
-                  <span style={{ width: '7px', height: '7px', borderRadius: '50%', background: tint }} />
+      category: <span style={{ display: 'inline-flex', alignItems: 'center', gap: '7px', fontSize: '12.5px', fontWeight: 600, color: '#3A3626' }}>
+                  <TagGlyph color={tint} />
                   {item.type_name}
                 </span>,
       serial: item.serial_number || dash,
@@ -401,7 +421,7 @@ const ServiceMaintenance = () => {
     cells.push(
       <td key={`${item.id}-actions`} style={{ ...styles.td, textAlign: 'right' }}>
         <div style={styles.actionRow}>
-          <button className="gl-icon-btn" style={{ ...styles.iconBtn, color: '#0D9488' }} onClick={() => openRecordService(item)} title="Record Service">
+          <button className="gl-icon-btn gl-icon-add" style={{ ...styles.iconBtn, color: TEAL }} onClick={() => openRecordService(item)} title="Record Service">
             <FaPlus size={12} />
           </button>
           <button className="gl-icon-btn gl-icon-view" style={styles.iconBtn} onClick={() => openHistory(item)} title="View History">
@@ -451,163 +471,186 @@ const ServiceMaintenance = () => {
   return (
     <div style={styles.page}>
       <style>{sheet}</style>
-      <div style={styles.shell}>
-        {/* Sidebar */}
-        <aside style={styles.sidebar}>
-          <div style={styles.sidebarHeader}>
-            <FaLayerGroup size={12} color="#9CA3AF" />
-            <span>Categories</span>
+      <div style={styles.frame}>
+        {/* Top bar */}
+        <header style={styles.topbar}>
+          <div style={styles.brandBlock}>
+            <div style={styles.mark}><FaClipboardList size={14} /></div>
+            <div>
+              <h1 style={styles.brandTitle}>
+                {activeTab ? categories.find(c => c.id === activeTab)?.name || 'Category' : 'Service & Maintenance'}
+              </h1>
+              <p style={styles.brandSub}>Fauji Foods · Service schedules</p>
+            </div>
           </div>
-          <nav style={styles.navList}>
+
+          <div style={styles.headerActions}>
+            <div style={styles.searchBox}>
+              <FaSearch style={styles.searchIcon} size={12} />
+              <input
+                type="text"
+                placeholder="Search items…"
+                value={searchTerm}
+                onChange={handleSearch}
+                style={styles.searchInput}
+              />
+            </div>
+
+            <div style={{ position: 'relative' }} ref={columnRef}>
+              <button style={styles.iconOnlyBtn} onClick={() => setShowColumnDropdown(!showColumnDropdown)} title="Columns">
+                <FaColumns size={13} />
+              </button>
+              {showColumnDropdown && (
+                <div style={styles.dropdown}>
+                  <div style={styles.dropdownHeader}>Show columns</div>
+                  {availableColumns.map(key => (
+                    <label key={key} className="gl-checkbox-row" style={styles.checkboxRow}>
+                      <input
+                        type="checkbox"
+                        checked={visibleColumns[key]}
+                        onChange={() => toggleColumn(key)}
+                        style={{ accentColor: TEAL }}
+                      />
+                      {COLUMN_DEFS[key].label}
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            <div style={{ position: 'relative' }} ref={exportRef}>
+              <button style={styles.iconOnlyBtn} onClick={() => setShowExportDropdown(!showExportDropdown)} title="Export">
+                <FaFileExport size={13} />
+              </button>
+              {showExportDropdown && (
+                <div style={{ ...styles.dropdown, minWidth: '150px' }}>
+                  <button style={styles.exportOption} onClick={handleExportExcel}>Export as Excel</button>
+                  <button style={styles.exportOption} onClick={handleExportPDF}>Export as PDF</button>
+                </div>
+              )}
+            </div>
+          </div>
+        </header>
+
+        {/* Stat strip */}
+        <div style={styles.statStrip}>
+          <div style={styles.statBlock}>
+            <span style={styles.statValue}>{String(items.length).padStart(3, '0')}</span>
+            <span style={styles.statLabel}>Total items</span>
+          </div>
+          <div style={styles.statDivider} />
+          <div style={styles.statBlock}>
+            <span style={styles.statValue}>
+              {String(items.filter(i => i.next_service_date && i.days_until_due < 0).length).padStart(2, '0')}
+            </span>
+            <span style={styles.statLabel}>Overdue</span>
+          </div>
+          <div style={styles.statDivider} />
+          <div style={styles.statBlock}>
+            <span style={styles.statValue}>
+              {String(items.filter(i => i.next_service_date && i.days_until_due <= 7 && i.days_until_due >= 0).length).padStart(2, '0')}
+            </span>
+            <span style={styles.statLabel}>Due soon</span>
+          </div>
+          <div style={styles.statDivider} />
+          <div style={styles.statBlock}>
+            <span style={styles.statValue}>{String(categoriesWithItems.length).padStart(2, '0')}</span>
+            <span style={styles.statLabel}>Categories</span>
+          </div>
+        </div>
+
+        {/* Category tabs */}
+        {categoriesWithItems.length > 0 && (
+          <div style={styles.tabRow}>
             <button
               onClick={() => setActiveTab(null)}
-              style={{ ...styles.navItem, ...(!activeTab ? styles.navItemActive : {}) }}
+              style={{ ...styles.tabPill, ...(!activeTab ? styles.tabPillActive : {}) }}
             >
-              <span style={styles.navLabel}>All items</span>
-              <span style={{ ...styles.navCount, ...(!activeTab ? styles.navCountActive : {}) }}>{items.length}</span>
+              All items
+              <span style={{ ...styles.tabCount, ...(!activeTab ? styles.tabCountActive : {}) }}>{items.length}</span>
             </button>
             {categoriesWithItems.map(cat => {
               const tint = categoryTintMap[cat.id];
               const isActive = activeTab === cat.id;
+              const count = items.filter(item => item.type_id === cat.id).length;
               return (
                 <button
                   key={cat.id}
                   onClick={() => setActiveTab(isActive ? null : cat.id)}
-                  style={{ ...styles.navItem, ...(isActive ? styles.navItemActive : {}) }}
+                  style={{ ...styles.tabPill, ...(isActive ? { ...styles.tabPillActive, background: tint, borderColor: tint } : {}) }}
                 >
-                  <span style={styles.navLabel}>
-                    <span style={{ ...styles.navDot, background: isActive ? '#fff' : tint }} />
-                    {cat.name}
-                  </span>
-                  <span style={{ ...styles.navCount, ...(isActive ? styles.navCountActive : {}) }}>
-                    {items.filter(item => item.type_id === cat.id).length}
-                  </span>
+                  <TagGlyph color={isActive ? '#fff' : tint} />
+                  {cat.name}
+                  <span style={{ ...styles.tabCount, ...(isActive ? styles.tabCountActive : {}) }}>{count}</span>
                 </button>
               );
             })}
-          </nav>
-        </aside>
-
-        {/* Main content */}
-        <main style={styles.main}>
-          <div style={styles.mainHeader}>
-            <div>
-              <h1 style={styles.listTitle}>
-                {activeTab ? categories.find(c => c.id === activeTab)?.name || 'Category' : 'Service & Maintenance'}
-              </h1>
-              <p style={styles.titleSub}>{filteredItems.length} of {items.length} items</p>
-            </div>
-            <div style={styles.headerActions}>
-              <div style={styles.searchBox}>
-                <FaSearch style={styles.searchIcon} size={12} />
-                <input
-                  type="text"
-                  placeholder="Search…"
-                  value={searchTerm}
-                  onChange={handleSearch}
-                  style={styles.searchInput}
-                />
-              </div>
-
-              <div style={{ position: 'relative' }} ref={columnRef}>
-                <button style={styles.iconOnlyBtn} onClick={() => setShowColumnDropdown(!showColumnDropdown)} title="Columns">
-                  <FaColumns size={13} />
-                </button>
-                {showColumnDropdown && (
-                  <div style={styles.dropdown}>
-                    <div style={styles.dropdownHeader}>Show columns</div>
-                    {availableColumns.map(key => (
-                      <label key={key} className="gl-checkbox-row" style={styles.checkboxRow}>
-                        <input
-                          type="checkbox"
-                          checked={visibleColumns[key]}
-                          onChange={() => toggleColumn(key)}
-                          style={{ accentColor: ACCENT }}
-                        />
-                        {COLUMN_DEFS[key].label}
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-
-              <div style={{ position: 'relative' }} ref={exportRef}>
-                <button style={styles.iconOnlyBtn} onClick={() => setShowExportDropdown(!showExportDropdown)} title="Export">
-                  <FaFileExport size={13} />
-                </button>
-                {showExportDropdown && (
-                  <div style={{ ...styles.dropdown, minWidth: '150px' }}>
-                    <button style={styles.exportOption} onClick={handleExportExcel}>Export as Excel</button>
-                    <button style={styles.exportOption} onClick={handleExportPDF}>Export as PDF</button>
-                  </div>
-                )}
-              </div>
-            </div>
           </div>
+        )}
 
-          <div style={styles.tableCard}>
-            <div style={styles.tableScroll}>
-              <table style={styles.table}>
-                <thead>
-                  <tr>{renderHeaders()}</tr>
-                </thead>
-                <tbody>
-                  {filteredItems.length === 0 ? (
-                    <tr>
-                      <td colSpan={100} style={styles.emptyCell}>
-                        <div style={styles.emptyWrap}>
-                          <div style={styles.emptyIcon}><FaInbox size={18} /></div>
-                          <h3 style={styles.emptyTitle}>No items found</h3>
-                          <p style={styles.emptyText}>Try adjusting your search.</p>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredItems.map((item, idx) => (
-                      <tr key={item.id} className="gl-row">{renderRowCells(item, idx)}</tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+        {/* Table */}
+        <div style={styles.tableCard}>
+          <div style={styles.tableScroll}>
+            <table style={styles.table}>
+              <thead>
+                <tr>{renderHeaders()}</tr>
+              </thead>
+              <tbody>
+                {filteredItems.length === 0 ? (
+                  <tr>
+                    <td colSpan="100" style={styles.emptyCell}>
+                      <div style={styles.emptyWrap}>
+                        <div style={styles.emptyIcon}><FaClipboardList size={16} /></div>
+                        <h3 style={styles.emptyTitle}>No items found</h3>
+                        <p style={styles.emptyText}>Try adjusting your search.</p>
+                      </div>
+                    </td>
+                  </tr>
+                ) : (
+                  filteredItems.map((item, idx) => (
+                    <tr key={item.id} className="gl-row">{renderRowCells(item, idx)}</tr>
+                  ))
+                )}
+              </tbody>
+            </table>
           </div>
-        </main>
+        </div>
       </div>
 
       {/* Record Service Modal */}
       {showServiceModal && selectedItem && (
-        <div className="modal-overlay" onClick={() => setShowServiceModal(false)}>
-          <div className="modal modal-large" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
-            <div className="modal-header">
-              <h2>Record Service – {selectedItem.name}</h2>
-              <button className="close-btn" onClick={() => setShowServiceModal(false)}>×</button>
+        <div style={styles.overlay} onClick={() => setShowServiceModal(false)}>
+          <div style={{ ...styles.modal, maxWidth: '600px' }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Record service – {selectedItem.name}</h2>
+              <button style={styles.closeBtn} onClick={() => setShowServiceModal(false)}>×</button>
             </div>
-            <div className="modal-body" style={{ padding: '20px' }}>
-              <div className="form-group" style={{ marginBottom: '12px' }}>
-                <label>Service Date *</label>
-                <input type="date" name="service_date" value={serviceData.service_date} onChange={handleServiceChange} style={styles.input} />
+            <div style={styles.modalBody}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Service Date *</label>
+                <input style={styles.input} type="date" name="service_date" value={serviceData.service_date} onChange={handleServiceChange} />
               </div>
-              <div className="form-group" style={{ marginBottom: '12px' }}>
-                <label>Schedule Type *</label>
-                <select name="schedule_type" value={serviceData.schedule_type} onChange={handleServiceChange} style={styles.input}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Schedule Type *</label>
+                <select style={styles.select} name="schedule_type" value={serviceData.schedule_type} onChange={handleServiceChange}>
                   <option value="weekly">Weekly</option>
                   <option value="monthly">Monthly</option>
                   <option value="quarterly">Quarterly</option>
                   <option value="yearly">Yearly</option>
                 </select>
               </div>
-              <div className="form-group" style={{ marginBottom: '12px' }}>
-                <label>Performed By</label>
-                <input type="text" name="performed_by" value={serviceData.performed_by} onChange={handleServiceChange} placeholder="Who performed the service?" style={styles.input} />
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Performed By</label>
+                <input style={styles.input} type="text" name="performed_by" value={serviceData.performed_by} onChange={handleServiceChange} placeholder="Who performed the service?" />
               </div>
-              <div className="form-group" style={{ marginBottom: '12px' }}>
-                <label>Notes</label>
-                <textarea name="notes" value={serviceData.notes} onChange={handleServiceChange} rows="3" placeholder="Any notes..." style={{ ...styles.input, resize: 'vertical' }} />
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Notes</label>
+                <textarea style={{ ...styles.input, resize: 'vertical', minHeight: '70px' }} name="notes" value={serviceData.notes} onChange={handleServiceChange} rows="3" placeholder="Any notes…" />
               </div>
-            </div>
-            <div className="form-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', padding: '16px 20px', borderTop: '1px solid #E5E7EB' }}>
-              <button className="btn-cancel" onClick={() => setShowServiceModal(false)}>Cancel</button>
-              <button className="btn-submit" style={styles.btnPrimary} onClick={submitService}>Submit Service</button>
+              <div style={styles.formActions}>
+                <button style={styles.btnCancel} onClick={() => setShowServiceModal(false)}>Cancel</button>
+                <button className="gl-btn-primary" style={styles.btnPrimary} onClick={submitService}>Submit Service</button>
+              </div>
             </div>
           </div>
         </div>
@@ -615,23 +658,23 @@ const ServiceMaintenance = () => {
 
       {/* History Modal */}
       {showHistoryModal && selectedItem && (
-        <div className="modal-overlay" onClick={() => setShowHistoryModal(false)}>
-          <div className="modal modal-large" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '850px' }}>
-            <div className="modal-header">
-              <h2>Service History – {selectedItem.name}</h2>
-              <button className="close-btn" onClick={() => setShowHistoryModal(false)}>×</button>
+        <div style={styles.overlay} onClick={() => setShowHistoryModal(false)}>
+          <div style={{ ...styles.modal, maxWidth: '850px' }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Service History – {selectedItem.name}</h2>
+              <button style={styles.closeBtn} onClick={() => setShowHistoryModal(false)}>×</button>
             </div>
-            <div className="modal-body" style={{ padding: '20px' }}>
+            <div style={styles.modalBody}>
               {history.length === 0 ? (
-                <p>No service records found.</p>
+                <p style={{ color: '#6B6353' }}>No service records found.</p>
               ) : (
                 <>
                   <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginBottom: '12px' }}>
-                    <button className="btn-secondary" style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={() => exportHistory('excel')}>
-                      <FaFileExport size={12} /> Excel
+                    <button className="gl-icon-btn" style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={() => exportHistory('excel')}>
+                      Excel
                     </button>
-                    <button className="btn-secondary" style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={exportHistoryPDF}>
-                      <FaFileExport size={12} /> PDF
+                    <button className="gl-icon-btn" style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={exportHistoryPDF}>
+                      PDF
                     </button>
                   </div>
                   <div style={styles.tableScroll}>
@@ -671,9 +714,9 @@ const ServiceMaintenance = () => {
                   </div>
                 </>
               )}
-            </div>
-            <div className="form-actions" style={{ display: 'flex', justifyContent: 'flex-end', padding: '16px 20px', borderTop: '1px solid #E5E7EB' }}>
-              <button className="btn-cancel" onClick={() => setShowHistoryModal(false)}>Close</button>
+              <div style={styles.formActions} className="no-print">
+                <button style={styles.btnCancel} onClick={() => setShowHistoryModal(false)}>Close</button>
+              </div>
             </div>
           </div>
         </div>
@@ -681,38 +724,38 @@ const ServiceMaintenance = () => {
 
       {/* Edit History Modal */}
       {showEditHistoryModal && (
-        <div className="modal-overlay" onClick={() => setShowEditHistoryModal(false)}>
-          <div className="modal modal-large" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '600px' }}>
-            <div className="modal-header">
-              <h2>Edit Service Record</h2>
-              <button className="close-btn" onClick={() => setShowEditHistoryModal(false)}>×</button>
+        <div style={styles.overlay} onClick={() => setShowEditHistoryModal(false)}>
+          <div style={{ ...styles.modal, maxWidth: '600px' }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Edit Service Record</h2>
+              <button style={styles.closeBtn} onClick={() => setShowEditHistoryModal(false)}>×</button>
             </div>
-            <div className="modal-body" style={{ padding: '20px' }}>
-              <div className="form-group" style={{ marginBottom: '12px' }}>
-                <label>Service Date *</label>
-                <input type="date" name="service_date" value={editHistoryData.service_date} onChange={handleEditHistoryChange} style={styles.input} />
+            <div style={styles.modalBody}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Service Date *</label>
+                <input style={styles.input} type="date" name="service_date" value={editHistoryData.service_date} onChange={handleEditHistoryChange} />
               </div>
-              <div className="form-group" style={{ marginBottom: '12px' }}>
-                <label>Schedule Type *</label>
-                <select name="schedule_type" value={editHistoryData.schedule_type} onChange={handleEditHistoryChange} style={styles.input}>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Schedule Type *</label>
+                <select style={styles.select} name="schedule_type" value={editHistoryData.schedule_type} onChange={handleEditHistoryChange}>
                   <option value="weekly">Weekly</option>
                   <option value="monthly">Monthly</option>
                   <option value="quarterly">Quarterly</option>
                   <option value="yearly">Yearly</option>
                 </select>
               </div>
-              <div className="form-group" style={{ marginBottom: '12px' }}>
-                <label>Performed By</label>
-                <input type="text" name="performed_by" value={editHistoryData.performed_by} onChange={handleEditHistoryChange} placeholder="Who performed the service?" style={styles.input} />
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Performed By</label>
+                <input style={styles.input} type="text" name="performed_by" value={editHistoryData.performed_by} onChange={handleEditHistoryChange} placeholder="Who performed the service?" />
               </div>
-              <div className="form-group" style={{ marginBottom: '12px' }}>
-                <label>Notes</label>
-                <textarea name="notes" value={editHistoryData.notes} onChange={handleEditHistoryChange} rows="3" placeholder="Any notes..." style={{ ...styles.input, resize: 'vertical' }} />
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Notes</label>
+                <textarea style={{ ...styles.input, resize: 'vertical', minHeight: '70px' }} name="notes" value={editHistoryData.notes} onChange={handleEditHistoryChange} rows="3" placeholder="Any notes…" />
               </div>
-            </div>
-            <div className="form-actions" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', padding: '16px 20px', borderTop: '1px solid #E5E7EB' }}>
-              <button className="btn-cancel" onClick={() => setShowEditHistoryModal(false)}>Cancel</button>
-              <button className="btn-submit" style={styles.btnPrimary} onClick={submitEditHistory}>Update</button>
+              <div style={styles.formActions}>
+                <button style={styles.btnCancel} onClick={() => setShowEditHistoryModal(false)}>Cancel</button>
+                <button className="gl-btn-primary" style={styles.btnPrimary} onClick={submitEditHistory}>Update</button>
+              </div>
             </div>
           </div>
         </div>
@@ -721,120 +764,58 @@ const ServiceMaintenance = () => {
   );
 };
 
-// ---------- Styles (matching InventoryList) ----------
+// ---------- Styles (matching AssetAssignment) ----------
 const styles = {
   page: {
     minHeight: '100%',
-    background: '#F6F6F8',
+    background: PAPER,
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   },
-  shell: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: '0',
-    minHeight: '100vh',
+  frame: {
+    maxWidth: '1400px',
+    margin: '0 auto',
+    padding: '20px 28px 48px',
   },
-  sidebar: {
-    width: '220px',
-    flexShrink: 0,
-    padding: '24px 14px',
-    borderRight: '1px solid #EAEAEE',
-    position: 'sticky',
-    top: 0,
-    height: '100vh',
-    overflowY: 'auto',
-    background: '#FBFBFC',
-  },
-  sidebarHeader: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '7px',
-    fontSize: '11px',
-    fontWeight: 700,
-    color: '#9CA3AF',
-    textTransform: 'uppercase',
-    letterSpacing: '0.05em',
-    padding: '0 10px',
-    marginBottom: '8px',
-  },
-  navList: {
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '2px',
-  },
-  navItem: {
-    display: 'flex',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: '8px',
-    height: '34px',
-    padding: '0 10px',
-    borderRadius: '8px',
-    border: 'none',
-    background: 'transparent',
-    fontSize: '13px',
-    fontWeight: 500,
-    color: '#4B5563',
-    cursor: 'pointer',
-    textAlign: 'left',
-    width: '100%',
-  },
-  navItemActive: {
-    background: INK,
-    color: '#fff',
-    fontWeight: 600,
-  },
-  navLabel: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '9px',
-    overflow: 'hidden',
-    textOverflow: 'ellipsis',
-    whiteSpace: 'nowrap',
-  },
-  navDot: {
-    width: '6px',
-    height: '6px',
-    borderRadius: '50%',
-    flexShrink: 0,
-  },
-  navCount: {
-    fontSize: '11px',
-    fontWeight: 600,
-    color: '#9CA3AF',
-    flexShrink: 0,
-  },
-  navCountActive: {
-    color: 'rgba(255,255,255,0.7)',
-  },
-  sidebarDivider: {
-    height: '1px',
-    background: '#EAEAEE',
-    margin: '18px 10px',
-  },
-  main: {
-    flex: 1,
-    minWidth: 0,
-    padding: '24px 32px 40px',
-  },
-  mainHeader: {
+  topbar: {
     display: 'flex',
     flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: '14px',
+    gap: '16px',
+    paddingBottom: '18px',
+    borderBottom: `2px solid ${INK}`,
     marginBottom: '18px',
   },
-  listTitle: {
-    fontSize: '19px',
-    fontWeight: 700,
-    color: '#111827',
-    margin: 0,
-    lineHeight: 1.3,
+  brandBlock: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
   },
-  titleSub: {
-    fontSize: '12.5px',
-    color: '#9CA3AF',
+  mark: {
+    width: '38px',
+    height: '38px',
+    borderRadius: '8px',
+    background: INK,
+    color: '#fff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  brandTitle: {
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: '20px',
+    fontWeight: 700,
+    color: INK,
+    margin: 0,
+    lineHeight: 1.25,
+  },
+  brandSub: {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: '11px',
+    color: '#8A8371',
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
     margin: '2px 0 0',
   },
   headerActions: {
@@ -846,12 +827,12 @@ const styles = {
     position: 'relative',
     display: 'flex',
     alignItems: 'center',
-    width: '220px',
+    width: '230px',
   },
   searchIcon: {
     position: 'absolute',
     left: '11px',
-    color: '#9CA3AF',
+    color: '#9C9585',
     pointerEvents: 'none',
   },
   searchInput: {
@@ -859,19 +840,19 @@ const styles = {
     height: '36px',
     padding: '0 12px 0 32px',
     borderRadius: '8px',
-    border: '1px solid #E5E7EB',
+    border: '1px solid #DEDACD',
     background: '#fff',
     fontSize: '13px',
     outline: 'none',
-    color: '#1F2937',
+    color: INK,
   },
   iconOnlyBtn: {
     width: '36px',
     height: '36px',
     borderRadius: '8px',
-    border: '1px solid #E5E7EB',
+    border: '1px solid #DEDACD',
     background: '#fff',
-    color: '#4B5563',
+    color: '#57503F',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -884,7 +865,7 @@ const styles = {
     gap: '7px',
     height: '36px',
     padding: '0 15px',
-    background: ACCENT,
+    background: TEAL,
     color: '#fff',
     border: 'none',
     borderRadius: '8px',
@@ -892,6 +873,17 @@ const styles = {
     fontWeight: 600,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
+  },
+  btnCancel: {
+    height: '36px',
+    padding: '0 15px',
+    background: '#fff',
+    color: '#3A3626',
+    border: '1px solid #DEDACD',
+    borderRadius: '8px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
   },
   dropdown: {
     position: 'absolute',
@@ -904,13 +896,13 @@ const styles = {
     overflowY: 'auto',
     zIndex: 20,
     background: '#fff',
-    border: '1px solid #E5E7EB',
-    boxShadow: '0 10px 24px rgba(17,24,39,0.10)',
+    border: '1px solid #E5E1D3',
+    boxShadow: '0 10px 24px rgba(20,22,31,0.12)',
   },
   dropdownHeader: {
     fontSize: '11px',
     fontWeight: 700,
-    color: '#9CA3AF',
+    color: '#9C9585',
     textTransform: 'uppercase',
     letterSpacing: '0.04em',
     padding: '6px 8px',
@@ -921,7 +913,7 @@ const styles = {
     gap: '9px',
     padding: '7px 8px',
     fontSize: '13px',
-    color: '#374151',
+    color: '#3A3626',
     borderRadius: '6px',
     cursor: 'pointer',
   },
@@ -931,17 +923,88 @@ const styles = {
     textAlign: 'left',
     padding: '9px 10px',
     fontSize: '13px',
-    color: '#374151',
+    color: '#3A3626',
     background: 'transparent',
     border: 'none',
     borderRadius: '6px',
     cursor: 'pointer',
   },
+  statStrip: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '28px',
+    padding: '14px 20px',
+    marginBottom: '16px',
+    background: INK,
+    borderRadius: '10px',
+    flexWrap: 'wrap',
+  },
+  statBlock: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '3px',
+  },
+  statValue: {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: '17px',
+    fontWeight: 700,
+    color: '#fff',
+  },
+  statLabel: {
+    fontSize: '10.5px',
+    color: '#A9A392',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+  statDivider: {
+    width: '1px',
+    height: '28px',
+    background: 'rgba(255,255,255,0.14)',
+  },
+  tabRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    overflowX: 'auto',
+    paddingBottom: '4px',
+    marginBottom: '18px',
+  },
+  tabPill: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '7px',
+    height: '34px',
+    padding: '0 13px',
+    borderRadius: '8px',
+    border: '1px solid #DEDACD',
+    background: '#fff',
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#3A3626',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+  },
+  tabPillActive: {
+    background: INK,
+    borderColor: INK,
+    color: '#fff',
+    fontWeight: 600,
+  },
+  tabCount: {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: '11px',
+    fontWeight: 600,
+    color: '#9C9585',
+  },
+  tabCountActive: {
+    color: 'rgba(255,255,255,0.75)',
+  },
   tableCard: {
     borderRadius: '12px',
     overflow: 'hidden',
     background: '#fff',
-    border: '1px solid #ECEDF1',
+    border: '1px solid #E5E1D3',
   },
   tableScroll: {
     overflowX: 'auto',
@@ -954,22 +1017,22 @@ const styles = {
   th: {
     textAlign: 'left',
     padding: '11px 16px',
-    background: '#FAFAFB',
-    color: '#9CA3AF',
-    fontWeight: 600,
-    fontSize: '11px',
+    background: '#FAF8F3',
+    color: '#9C9585',
+    fontWeight: 700,
+    fontSize: '10.5px',
     textTransform: 'uppercase',
-    letterSpacing: '0.03em',
-    borderBottom: '1px solid #ECEDF1',
+    letterSpacing: '0.05em',
+    borderBottom: '1px solid #E5E1D3',
     whiteSpace: 'nowrap',
   },
   td: {
     padding: '12px 16px',
-    borderBottom: '1px solid #F3F4F6',
-    color: '#374151',
+    borderBottom: '1px solid #F1EEE6',
+    color: '#3A3626',
     whiteSpace: 'nowrap',
   },
-  dash: { color: '#D1D5DB' },
+  dash: { color: '#D2CDBD' },
   actionRow: {
     display: 'flex',
     gap: '4px',
@@ -981,7 +1044,7 @@ const styles = {
     borderRadius: '7px',
     border: 'none',
     background: 'transparent',
-    color: '#9CA3AF',
+    color: '#9C9585',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -994,7 +1057,7 @@ const styles = {
     fontSize: '11.5px',
     fontWeight: 600,
   },
-  emptyCell: { padding: '56px 20px' },
+  emptyCell: { padding: '56px 20px', textAlign: 'center' },
   emptyWrap: {
     display: 'flex',
     flexDirection: 'column',
@@ -1005,15 +1068,15 @@ const styles = {
     width: '48px',
     height: '48px',
     borderRadius: '12px',
-    background: '#F3F4F6',
-    color: '#9CA3AF',
+    background: '#F1EEE6',
+    color: '#9C9585',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: '6px',
   },
-  emptyTitle: { fontSize: '14.5px', fontWeight: 700, color: '#1F2937', margin: 0 },
-  emptyText: { fontSize: '13px', color: '#9CA3AF', margin: '0 0 10px' },
+  emptyTitle: { fontSize: '14.5px', fontWeight: 700, color: INK, margin: 0 },
+  emptyText: { fontSize: '13px', color: '#9C9585', margin: '0 0 10px' },
   loadingWrap: {
     display: 'flex',
     flexDirection: 'column',
@@ -1025,37 +1088,124 @@ const styles = {
   spinner: {
     width: '30px',
     height: '30px',
-    border: '3px solid #E5E7EB',
-    borderTopColor: ACCENT,
+    border: '3px solid #E5E1D3',
+    borderTopColor: TEAL,
     borderRadius: '50%',
     animation: 'gl-spin 0.8s linear infinite',
   },
-  loadingText: { color: '#6B7280', fontSize: '14px', margin: 0 },
-  input: {
-    width: '100%',
-    padding: '8px 12px',
-    borderRadius: '6px',
-    border: '1px solid #D1D5DB',
-    fontSize: '14px',
-    outline: 'none',
+  loadingText: { color: '#6B6353', fontSize: '14px', margin: 0 },
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(20,22,31,0.45)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
+    padding: '20px',
+  },
+  modal: {
     background: '#fff',
-    color: '#1F2937',
+    borderRadius: '14px',
+    width: '100%',
+    maxHeight: '88vh',
+    overflowY: 'auto',
+    boxShadow: '0 24px 60px rgba(20,22,31,0.25)',
+  },
+  modalHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '18px 20px',
+    borderBottom: '1px solid #E5E1D3',
+    position: 'sticky',
+    top: 0,
+    background: '#fff',
+    zIndex: 1,
+  },
+  modalTitle: {
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: '16px',
+    fontWeight: 700,
+    color: INK,
+    margin: 0,
+  },
+  closeBtn: {
+    width: '30px',
+    height: '30px',
+    borderRadius: '7px',
+    border: 'none',
+    background: 'transparent',
+    color: '#9C9585',
+    fontSize: '20px',
+    lineHeight: 1,
+    cursor: 'pointer',
+  },
+  modalBody: {
+    padding: '20px',
+  },
+  formGroup: {
+    marginBottom: '14px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+  },
+  label: {
+    fontSize: '11.5px',
+    fontWeight: 700,
+    color: '#9C9585',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+  },
+  input: {
+    height: '38px',
+    padding: '0 12px',
+    borderRadius: '8px',
+    border: '1px solid #DEDACD',
+    fontSize: '13px',
+    color: INK,
+    outline: 'none',
+    fontFamily: "'Inter', sans-serif",
+  },
+  select: {
+    height: '38px',
+    padding: '0 12px',
+    borderRadius: '8px',
+    border: '1px solid #DEDACD',
+    fontSize: '13px',
+    color: INK,
+    background: '#fff',
+    outline: 'none',
+  },
+  formActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '10px',
+    marginTop: '10px',
   },
 };
 
 const sheet = `
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
+
 @keyframes gl-spin { to { transform: rotate(360deg); } }
+
 .gl-row { transition: background 0.12s ease; }
-.gl-row:hover { background: #FAFAFB; }
+.gl-row:hover { background: #FAF8F3; }
 .gl-btn-primary { transition: opacity 0.15s ease; }
 .gl-btn-primary:hover { opacity: 0.9; }
 .gl-icon-btn { transition: all 0.12s ease; }
-.gl-icon-view:hover { background: #EFF6FF !important; color: #0284C7 !important; }
-.gl-icon-edit:hover { background: #FFFBEB !important; color: #D97706 !important; }
-.gl-icon-delete:hover { background: #FEF2F2 !important; color: #E11D48 !important; }
-input[type=text]::placeholder { color: #9CA3AF; }
-input:focus { border-color: #4F46E5 !important; box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
-@media (max-width: 900px) { .gl-sidebar { display: none; } }
+.gl-icon-view:hover { background: #EAF1F4 !important; color: #1F6F78 !important; }
+.gl-icon-edit:hover { background: #FBF3E3 !important; color: #C08A1E !important; }
+.gl-icon-delete:hover { background: #FBEDEA !important; color: #B4442B !important; }
+.gl-icon-add:hover { background: #EAF1F4 !important; color: #1F6F78 !important; }
+.gl-checkbox-row:hover { background: #FAF8F3; }
+input[type=text]::placeholder, textarea::placeholder { color: #B9B3A4; }
+input:focus, select:focus, textarea:focus { border-color: #1F6F78 !important; box-shadow: 0 0 0 3px rgba(31,111,120,0.12); outline: none; }
+
+@media print {
+  .no-print { display: none; }
+}
 `;
 
 export default ServiceMaintenance;

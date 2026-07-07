@@ -55,13 +55,22 @@ const Sidebar = ({ types, onSelectType, selectedType }) => {
           <span className="label">Service & Maintenance</span>
         </div>
 
-        {/* NEW: Asset Returns */}
+        {/* Asset Returns */}
         <div 
           className={`sidebar-item ${selectedType === 'returns' ? 'active' : ''}`}
           onClick={() => onSelectType('returns')}
         >
           <span className="icon"><FaUndo /></span>
           <span className="label">Asset Returns</span>
+        </div>
+
+        {/* Condemned items */}
+        <div 
+          className={`sidebar-item ${selectedType === 'condemned' ? 'active' : ''}`}
+          onClick={() => onSelectType('condemned')}
+        >
+          <span className="icon">⛔</span>
+          <span className="label">Condemned</span>
         </div>
       </div>
 
@@ -71,6 +80,5 @@ const Sidebar = ({ types, onSelectType, selectedType }) => {
     </div>
   );
 };
-
 
 export default Sidebar;

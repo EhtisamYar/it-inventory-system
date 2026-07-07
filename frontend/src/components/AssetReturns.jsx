@@ -15,6 +15,32 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString('en-GB');
 };
 
+// ---------- Design tokens (match AssetAssignment) ----------
+const PAPER = '#F2F0EA';
+const INK = '#14161F';
+const TEAL = '#1F6F78';
+const AMBER = '#C08A1E';
+const CATEGORY_TINTS = ['#1F6F78', '#B45309', '#5B4B8A', '#0F766E', '#9A3412', '#4D5B8A', '#7C5A2A', '#3F6B3A'];
+const getTint = (index) => CATEGORY_TINTS[index % CATEGORY_TINTS.length];
+
+// ---------- Tag glyph ----------
+const TagGlyph = ({ color }) => (
+  <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
+    <path
+      d="M1.2 6.4 L6.4 1.2 a1.3 1.3 0 0 1 1.8 0 l4.6 4.6 a1.3 1.3 0 0 1 0 1.8 l-5.2 5.2 a1.3 1.3 0 0 1-1.8 0 L1.2 8.2 a1.3 1.3 0 0 1 0-1.8 Z"
+      fill={color}
+      opacity="0.16"
+    />
+    <path
+      d="M1.2 6.4 L6.4 1.2 a1.3 1.3 0 0 1 1.8 0 l4.6 4.6 a1.3 1.3 0 0 1 0 1.8 l-5.2 5.2 a1.3 1.3 0 0 1-1.8 0 L1.2 8.2 a1.3 1.3 0 0 1 0-1.8 Z"
+      fill="none"
+      stroke={color}
+      strokeWidth="1"
+    />
+    <circle cx="4.6" cy="4.6" r="1" fill={color} />
+  </svg>
+);
+
 const COLUMN_DEFS = {
   item: { label: 'Item', always: false },
   serial: { label: 'Serial No', always: false },
@@ -31,11 +57,6 @@ const DEFAULT_VISIBLE = Object.keys(COLUMN_DEFS).reduce((acc, key) => {
   acc[key] = true;
   return acc;
 }, {});
-
-const ACCENT = '#4F46E5';
-const INK = '#14161F';
-const CATEGORY_TINTS = ['#4F46E5', '#0D9488', '#B45309', '#BE185D', '#0369A1', '#4D7C0F', '#7C3AED', '#C2410C'];
-const getTint = (index) => CATEGORY_TINTS[index % CATEGORY_TINTS.length];
 
 const AssetReturns = () => {
   const [activeTab, setActiveTab] = useState('return');
@@ -54,7 +75,7 @@ const AssetReturns = () => {
     department: '',
   });
   const [foundAssets, setFoundAssets] = useState([]);
-  const [selectedAssets, setSelectedAssets] = useState([]); // multiple items
+  const [selectedAssets, setSelectedAssets] = useState([]);
   const [returnData, setReturnData] = useState({
     returned_by: '',
     return_date: new Date().toISOString().split('T')[0],
@@ -165,7 +186,6 @@ const AssetReturns = () => {
       return;
     }
     setFoundAssets(filtered);
-    // Pre-select all by default? We'll let user choose.
     setSelectedAssets([]);
     setStep('assets');
   };
@@ -221,7 +241,6 @@ const AssetReturns = () => {
         backup_done: returnData.backup_done ? 1 : 0,
       };
 
-      // Return each selected asset
       const results = [];
       for (const item of selectedAssets) {
         const response = await axios.post(`${API_URL}/api/inventory/return`, {
@@ -241,7 +260,6 @@ const AssetReturns = () => {
       setShowReturnModal(false);
       setShowPrintModal(true);
       
-      // Refresh data
       fetchAssignedItems();
       fetchReturns();
       setTimeout(() => setActiveTab('history'), 500);
@@ -327,7 +345,7 @@ const AssetReturns = () => {
       body: tableData,
       startY: 25,
       styles: { fontSize: 8, font: 'helvetica' },
-      headStyles: { fillColor: [79, 70, 229], font: 'helvetica' },
+      headStyles: { fillColor: [31, 111, 120], font: 'helvetica' },
       margin: { left: 10, right: 10 },
     });
     doc.save('Item_Returns.pdf');
@@ -432,10 +450,10 @@ const AssetReturns = () => {
 
       <div style={{ flex: 1 }}>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: '#111827' }}>
+          <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: INK }}>
             {searchTerm.trim() ? `Assets matching "${searchTerm}"` : 'All Assigned Assets'}
           </h3>
-          <span style={{ fontSize: '14px', color: '#6B7280' }}>
+          <span style={{ fontSize: '14px', color: '#8A8371' }}>
             {filteredAssigned.length} assigned {filteredAssigned.length === 1 ? 'asset' : 'assets'}
           </span>
         </div>
@@ -458,11 +476,11 @@ const AssetReturns = () => {
               ) : (
                 filteredAssigned.map(item => (
                   <tr key={item.id} className="gl-row">
-                    <td style={styles.td}><strong>{item.name}</strong></td>
-                    <td style={styles.td}>{item.serial_number || '-'}</td>
+                    <td style={{ ...styles.td, fontWeight: 600 }}>{item.name}</td>
+                    <td style={{ ...styles.td, fontFamily: "'JetBrains Mono', monospace", fontSize: '12.5px' }}>{item.serial_number || '-'}</td>
                     <td style={styles.td}>{item.asset || '-'}</td>
                     <td style={styles.td}>{item.assigned_to || '-'}</td>
-                    <td style={styles.td}>{item.employee_id || '-'}</td>
+                    <td style={{ ...styles.td, fontFamily: "'JetBrains Mono', monospace", fontSize: '12.5px' }}>{item.employee_id || '-'}</td>
                     <td style={styles.td}>{item.department || '-'}</td>
                   </tr>
                 ))
@@ -483,7 +501,7 @@ const AssetReturns = () => {
       }
     });
 
-    const dash = <span style={{ color: '#D1D5DB' }}>-</span>;
+    const dash = <span style={styles.dash}>-</span>;
 
     return (
       <div style={styles.tableScroll}>
@@ -496,7 +514,7 @@ const AssetReturns = () => {
               <tr><td colSpan={headers.length} style={styles.td}><div style={styles.emptyWrap}><div style={styles.emptyIcon}><FaInbox size={18} /></div>No returns found.</div></td></tr>
             ) : (
               filteredReturns.map((r, idx) => {
-                const cells = [<td key="num" style={styles.td}>{idx + 1}</td>];
+                const cells = [<td key="num" style={{ ...styles.td, color: '#B9B3A4' }}>{String(idx + 1).padStart(3, '0')}</td>];
                 const valueMap = {
                   item: <strong>{r.item_name}</strong>,
                   serial: r.serial_number || dash,
@@ -538,159 +556,166 @@ const AssetReturns = () => {
   return (
     <div style={styles.page}>
       <style>{sheet}</style>
-      <div style={styles.shell}>
-        <main style={{ ...styles.main, paddingBottom: '40px' }}>
-          <div style={styles.mainHeader}>
+      <div style={styles.frame}>
+        {/* Top bar */}
+        <header style={styles.topbar}>
+          <div style={styles.brandBlock}>
+            <div style={styles.mark}><FaUndo size={14} /></div>
             <div>
-              <h1 style={styles.listTitle}>
-                <FaUndo style={{ marginRight: '10px' }} />
-                Asset Returns
+              <h1 style={styles.brandTitle}>
+                {activeTab === 'return' ? 'Return an Item' : 'Returns History'}
               </h1>
+              <p style={styles.brandSub}>Fauji Foods · Asset returns</p>
             </div>
-            <div style={styles.headerActions}>
-              <div style={styles.searchBox}>
-                <FaSearch style={styles.searchIcon} size={12} />
-                <input
-                  type="text"
-                  placeholder={activeTab === 'return' ? 'Search by employee name, ID, or department…' : 'Search returns…'}
-                  value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
-                  style={styles.searchInput}
-                />
-              </div>
+          </div>
 
-              {activeTab === 'return' && (
-                <button className="gl-btn-primary" style={{ ...styles.btnPrimary, background: '#0D9488' }} onClick={openReturnModal}>
-                  <FaUser size={13} style={{ marginRight: '6px' }} /> Return Equipment
+          <div style={styles.headerActions}>
+            <div style={styles.searchBox}>
+              <FaSearch style={styles.searchIcon} size={12} />
+              <input
+                type="text"
+                placeholder={activeTab === 'return' ? 'Search by employee name, ID, or department…' : 'Search returns…'}
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                style={styles.searchInput}
+              />
+            </div>
+
+            {activeTab === 'return' && (
+              <button className="gl-btn-primary" style={{ ...styles.btnPrimary, background: TEAL }} onClick={openReturnModal}>
+                <FaUser size={13} style={{ marginRight: '6px' }} /> Return Equipment
+              </button>
+            )}
+
+            {activeTab === 'history' && (
+              <div style={{ position: 'relative' }} ref={columnRef}>
+                <button style={styles.iconOnlyBtn} onClick={() => setShowColumnDropdown(!showColumnDropdown)} title="Columns">
+                  <FaColumns size={13} />
                 </button>
-              )}
+                {showColumnDropdown && (
+                  <div style={styles.dropdown}>
+                    <div style={styles.dropdownHeader}>Show columns</div>
+                    {availableColumns.map(key => (
+                      <label key={key} className="gl-checkbox-row" style={styles.checkboxRow}>
+                        <input
+                          type="checkbox"
+                          checked={visibleColumns[key]}
+                          onChange={() => toggleColumn(key)}
+                          style={{ accentColor: TEAL }}
+                        />
+                        {COLUMN_DEFS[key].label}
+                      </label>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
 
-              {activeTab === 'history' && (
-                <div style={{ position: 'relative' }} ref={columnRef}>
-                  <button style={styles.iconOnlyBtn} onClick={() => setShowColumnDropdown(!showColumnDropdown)} title="Columns">
-                    <FaColumns size={13} />
-                  </button>
-                  {showColumnDropdown && (
-                    <div style={styles.dropdown}>
-                      <div style={styles.dropdownHeader}>Show columns</div>
-                      {availableColumns.map(key => (
-                        <label key={key} className="gl-checkbox-row" style={styles.checkboxRow}>
-                          <input
-                            type="checkbox"
-                            checked={visibleColumns[key]}
-                            onChange={() => toggleColumn(key)}
-                            style={{ accentColor: ACCENT }}
-                          />
-                          {COLUMN_DEFS[key].label}
-                        </label>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {activeTab === 'history' && (
-                <>
-                  <button style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={handleExportExcel} title="Export Excel">
-                    <FaFileExcel size={13} /> Excel
-                  </button>
-                  <button style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={handleExportPDF} title="Export PDF">
-                    <FaFilePdf size={13} /> PDF
-                  </button>
-                </>
-              )}
-            </div>
+            {activeTab === 'history' && (
+              <>
+                <button style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={handleExportExcel} title="Export Excel">
+                  <FaFileExcel size={13} /> Excel
+                </button>
+                <button style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={handleExportPDF} title="Export PDF">
+                  <FaFilePdf size={13} /> PDF
+                </button>
+              </>
+            )}
           </div>
+        </header>
 
-          <div style={styles.tabsContainer}>
+        {/* Stat strip */}
+        <div style={styles.statStrip}>
+          <div style={styles.statBlock}>
+            <span style={styles.statValue}>{String(assignedItems.length).padStart(3, '0')}</span>
+            <span style={styles.statLabel}>Assigned</span>
+          </div>
+          <div style={styles.statDivider} />
+          <div style={styles.statBlock}>
+            <span style={styles.statValue}>{String(returns.length).padStart(3, '0')}</span>
+            <span style={styles.statLabel}>Returns</span>
+          </div>
+          <div style={styles.statDivider} />
+          <div style={styles.statBlock}>
+            <span style={styles.statValue}>{String(categories.length).padStart(2, '0')}</span>
+            <span style={styles.statLabel}>Categories</span>
+          </div>
+          <div style={styles.statDivider} />
+          <div style={styles.statBlock}>
+            <span style={styles.statValue}>{filteredAssigned.length}</span>
+            <span style={styles.statLabel}>Matching</span>
+          </div>
+        </div>
+
+        {/* Category tabs (only on return tab) */}
+        {activeTab === 'return' && categories.length > 0 && (
+          <div style={styles.tabRow}>
             <button
-              onClick={() => { setActiveTab('return'); setSearchTerm(''); setActiveCategory(null); }}
-              style={{
-                ...styles.tab,
-                color: activeTab === 'return' ? ACCENT : '#6B7280',
-                borderBottom: activeTab === 'return' ? `2px solid ${ACCENT}` : '2px solid transparent',
-              }}
+              onClick={() => setActiveCategory(null)}
+              style={{ ...styles.tabPill, ...(!activeCategory ? styles.tabPillActive : {}) }}
             >
-              <FaPlus size={12} style={{ marginRight: '6px' }} />
-              Return an Item
+              All items
+              <span style={{ ...styles.tabCount, ...(!activeCategory ? styles.tabCountActive : {}) }}>{assignedItems.length}</span>
             </button>
-            <button
-              onClick={() => { setActiveTab('history'); setSearchTerm(''); }}
-              style={{
-                ...styles.tab,
-                color: activeTab === 'history' ? ACCENT : '#6B7280',
-                borderBottom: activeTab === 'history' ? `2px solid ${ACCENT}` : '2px solid transparent',
-              }}
-            >
-              <FaClipboardList size={12} style={{ marginRight: '6px' }} />
-              Returns History ({returns.length})
-            </button>
+            {categories.map(cat => {
+              const tint = categoryTintMap[cat.id];
+              const isActive = activeCategory === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setActiveCategory(isActive ? null : cat.id)}
+                  style={{ ...styles.tabPill, ...(isActive ? { ...styles.tabPillActive, background: tint, borderColor: tint } : {}) }}
+                >
+                  <TagGlyph color={isActive ? '#fff' : tint} />
+                  {cat.name}
+                  <span style={{ ...styles.tabCount, ...(isActive ? styles.tabCountActive : {}) }}>{cat.count}</span>
+                </button>
+              );
+            })}
           </div>
+        )}
 
-          <div style={styles.tableCard}>
-            {activeTab === 'return' ? renderReturnForm() : renderHistory()}
-          </div>
-        </main>
+        {/* Main content */}
+        <div style={styles.tableCard}>
+          {activeTab === 'return' ? renderReturnForm() : renderHistory()}
+        </div>
       </div>
 
-      {/* ===== SINGLE RETURN MODAL ===== */}
+      {/* ===== RETURN MODAL ===== */}
       {showReturnModal && (
-        <div className="modal-overlay" onClick={() => setShowReturnModal(false)}>
-          <div className="modal modal-large" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '700px', background: '#fff', borderRadius: '12px', padding: '20px' }}>
-            <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 600 }}>
+        <div style={styles.overlay} onClick={() => setShowReturnModal(false)}>
+          <div style={{ ...styles.modal, maxWidth: '700px' }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>
                 {step === 'employee' && 'Find Employee Assets'}
                 {step === 'assets' && 'Select Assets to Return'}
                 {step === 'return' && 'Confirm Return'}
               </h2>
-              <button className="close-btn" onClick={() => setShowReturnModal(false)} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer' }}>
-                <FaTimes />
-              </button>
+              <button style={styles.closeBtn} onClick={() => setShowReturnModal(false)}>×</button>
             </div>
 
-            <div style={{ marginBottom: '16px' }}>
+            <div style={styles.modalBody}>
               {step === 'employee' && (
                 <>
-                  <p style={{ fontSize: '14px', color: '#6B7280', marginBottom: '16px' }}>
+                  <p style={{ fontSize: '13px', color: '#6B6353', marginBottom: '16px' }}>
                     Enter employee details to see all assets assigned to them.
                   </p>
-                  <div className="form-group" style={{ marginBottom: '12px' }}>
-                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>Employee ID</label>
-                    <input
-                      type="text"
-                      name="employee_id"
-                      value={employeeSearch.employee_id}
-                      onChange={handleEmployeeSearchChange}
-                      style={styles.input}
-                      placeholder="e.g., FFL-12345"
-                    />
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Employee ID</label>
+                    <input style={styles.input} type="text" name="employee_id" value={employeeSearch.employee_id} onChange={handleEmployeeSearchChange} placeholder="e.g., FFL-12345" />
                   </div>
-                  <div className="form-group" style={{ marginBottom: '12px' }}>
-                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>Employee Name</label>
-                    <input
-                      type="text"
-                      name="name"
-                      value={employeeSearch.name}
-                      onChange={handleEmployeeSearchChange}
-                      style={styles.input}
-                      placeholder="e.g., Zaheer Abbas"
-                    />
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Employee Name</label>
+                    <input style={styles.input} type="text" name="name" value={employeeSearch.name} onChange={handleEmployeeSearchChange} placeholder="e.g., Zaheer Abbas" />
                   </div>
-                  <div className="form-group" style={{ marginBottom: '12px' }}>
-                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>Department</label>
-                    <input
-                      type="text"
-                      name="department"
-                      value={employeeSearch.department}
-                      onChange={handleEmployeeSearchChange}
-                      style={styles.input}
-                      placeholder="e.g., IT, Finance"
-                    />
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Department</label>
+                    <input style={styles.input} type="text" name="department" value={employeeSearch.department} onChange={handleEmployeeSearchChange} placeholder="e.g., IT, Finance" />
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px' }}>
-                    <button className="btn-cancel" style={{ padding: '8px 20px', background: 'transparent', border: '1px solid #D1D5DB', borderRadius: '6px', cursor: 'pointer' }} onClick={() => setShowReturnModal(false)}>Cancel</button>
-                    <button className="btn-submit" style={{ padding: '8px 20px', background: ACCENT, color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }} onClick={findEmployeeAssets}>
-                      <FaSearch style={{ marginRight: '6px' }} /> Find Assets
+                  <div style={styles.formActions}>
+                    <button style={styles.btnCancel} onClick={() => setShowReturnModal(false)}>Cancel</button>
+                    <button className="gl-btn-primary" style={styles.btnPrimary} onClick={findEmployeeAssets}>
+                      <FaSearch size={12} style={{ marginRight: '6px' }} /> Find Assets
                     </button>
                   </div>
                 </>
@@ -703,13 +728,13 @@ const AssetReturns = () => {
                       <FaArrowLeft size={14} /> Back
                     </button>
                     <div>
-                      <button style={{ padding: '4px 12px', fontSize: '12px', border: '1px solid #D1D5DB', borderRadius: '4px', background: 'transparent', cursor: 'pointer' }} onClick={selectAllAssets}>
+                      <button style={styles.tabPill} onClick={selectAllAssets} style={{ padding: '4px 12px', fontSize: '12px', border: '1px solid #DEDACD', borderRadius: '6px', background: 'transparent', cursor: 'pointer' }}>
                         {selectedAssets.length === foundAssets.length ? 'Deselect All' : 'Select All'}
                       </button>
-                      <span style={{ marginLeft: '12px', fontSize: '14px', color: '#6B7280' }}>{selectedAssets.length} selected</span>
+                      <span style={{ marginLeft: '12px', fontSize: '14px', color: '#8A8371' }}>{selectedAssets.length} selected</span>
                     </div>
                   </div>
-                  <p style={{ fontSize: '14px', color: '#6B7280', marginBottom: '12px' }}>
+                  <p style={{ fontSize: '13px', color: '#6B6353', marginBottom: '12px' }}>
                     {foundAssets.length} asset(s) found. Select the ones you want to return.
                   </p>
                   <div style={{ maxHeight: '300px', overflowY: 'auto' }}>
@@ -718,15 +743,15 @@ const AssetReturns = () => {
                         key={item.id}
                         style={{
                           padding: '10px 14px',
-                          border: '1px solid #E5E7EB',
+                          border: '1px solid #DEDACD',
                           borderRadius: '8px',
                           marginBottom: '6px',
                           display: 'flex',
                           alignItems: 'center',
                           gap: '12px',
                           cursor: 'pointer',
-                          background: selectedAssets.find(a => a.id === item.id) ? '#EEF2FF' : '#FAFAFB',
-                          borderColor: selectedAssets.find(a => a.id === item.id) ? ACCENT : '#E5E7EB',
+                          background: selectedAssets.find(a => a.id === item.id) ? '#EAF1F4' : '#FAF8F3',
+                          borderColor: selectedAssets.find(a => a.id === item.id) ? TEAL : '#DEDACD',
                         }}
                         onClick={() => toggleAssetSelection(item)}
                       >
@@ -734,11 +759,11 @@ const AssetReturns = () => {
                           type="checkbox"
                           checked={!!selectedAssets.find(a => a.id === item.id)}
                           onChange={() => toggleAssetSelection(item)}
-                          style={{ accentColor: ACCENT }}
+                          style={{ accentColor: TEAL }}
                         />
                         <div>
-                          <strong>{item.name}</strong>
-                          <span style={{ marginLeft: '16px', color: '#6B7280', fontSize: '14px' }}>
+                          <strong style={{ color: INK }}>{item.name}</strong>
+                          <span style={{ marginLeft: '16px', color: '#6B6353', fontSize: '13px' }}>
                             Serial: {item.serial_number || '-'} | Assigned to: {item.assigned_to}
                           </span>
                         </div>
@@ -746,7 +771,7 @@ const AssetReturns = () => {
                     ))}
                   </div>
                   <div style={{ display: 'flex', justifyContent: 'flex-end', marginTop: '12px' }}>
-                    <button className="btn-submit" style={{ padding: '8px 20px', background: ACCENT, color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }} onClick={proceedToReturn}>
+                    <button className="gl-btn-primary" style={styles.btnPrimary} onClick={proceedToReturn}>
                       Return Selected ({selectedAssets.length})
                     </button>
                   </div>
@@ -758,45 +783,43 @@ const AssetReturns = () => {
                   <button className="gl-icon-btn" style={{ ...styles.iconBtn, marginBottom: '12px' }} onClick={() => setStep('assets')}>
                     <FaArrowLeft size={14} /> Back
                   </button>
-                  <div style={{ background: '#F9FAFB', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
-                    <p style={{ margin: 0, fontSize: '14px', color: '#4B5563' }}>
+                  <div style={{ background: '#FAF8F3', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
+                    <p style={{ margin: 0, fontSize: '14px', color: INK }}>
                       <strong>Returning {selectedAssets.length} item(s):</strong>
                     </p>
-                    <ul style={{ margin: '4px 0 0', paddingLeft: '20px', fontSize: '13px', color: '#4B5563' }}>
+                    <ul style={{ margin: '4px 0 0', paddingLeft: '20px', fontSize: '13px', color: '#3A3626' }}>
                       {selectedAssets.map(item => (
                         <li key={item.id}>{item.name} (Serial: {item.serial_number || '-'})</li>
                       ))}
                     </ul>
                   </div>
-                  <div className="form-group" style={{ marginBottom: '12px' }}>
-                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>Returned By *</label>
-                    <input type="text" name="returned_by" value={returnData.returned_by} onChange={handleReturnChange} style={styles.input} placeholder="e.g., Zaheer Abbas" />
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Returned By *</label>
+                    <input style={styles.input} type="text" name="returned_by" value={returnData.returned_by} onChange={handleReturnChange} placeholder="e.g., Zaheer Abbas" />
                   </div>
-                  <div className="form-group" style={{ marginBottom: '12px' }}>
-                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>Return Date</label>
-                    <input type="date" name="return_date" value={returnData.return_date} onChange={handleReturnChange} style={styles.input} />
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Return Date</label>
+                    <input style={styles.input} type="date" name="return_date" value={returnData.return_date} onChange={handleReturnChange} />
                   </div>
-                  <div className="form-group" style={{ marginBottom: '12px' }}>
-                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>Email</label>
-                    <input type="email" name="email" value={returnData.email} onChange={handleReturnChange} style={styles.input} placeholder="email@domain.com" />
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Email</label>
+                    <input style={styles.input} type="email" name="email" value={returnData.email} onChange={handleReturnChange} placeholder="email@domain.com" />
                   </div>
-                  <div className="form-group" style={{ marginBottom: '12px' }}>
-                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>Mobile Number</label>
-                    <input type="text" name="mobile_number" value={returnData.mobile_number} onChange={handleReturnChange} style={styles.input} placeholder="03XX-XXXXXXX" />
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Mobile Number</label>
+                    <input style={styles.input} type="text" name="mobile_number" value={returnData.mobile_number} onChange={handleReturnChange} placeholder="03XX-XXXXXXX" />
                   </div>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '12px 0' }}>
-                    <input type="checkbox" name="backup_done" checked={returnData.backup_done} onChange={handleReturnChange} id="backupCheck" style={{ accentColor: ACCENT }} />
-                    <label htmlFor="backupCheck">Backup Done?</label>
+                    <input type="checkbox" name="backup_done" checked={returnData.backup_done} onChange={handleReturnChange} id="backupCheck" style={{ accentColor: TEAL }} />
+                    <label htmlFor="backupCheck" style={{ fontSize: '13px', fontWeight: 500, color: '#3A3626' }}>Backup Done?</label>
                   </div>
-                  <div className="form-group" style={{ marginBottom: '12px' }}>
-                    <label style={{ display: 'block', marginBottom: '4px', fontWeight: 500 }}>Remarks</label>
-                    <textarea name="remarks" value={returnData.remarks} onChange={handleReturnChange} rows="3" style={{ ...styles.input, resize: 'vertical' }} placeholder="Any notes..." />
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Remarks</label>
+                    <textarea style={{ ...styles.input, resize: 'vertical', minHeight: '70px' }} name="remarks" value={returnData.remarks} onChange={handleReturnChange} rows="3" placeholder="Any notes…" />
                   </div>
-                  <div style={{ display: 'flex', gap: '10px', marginTop: '16px' }}>
-                    <button className="btn-cancel" style={{ padding: '8px 20px', background: 'transparent', border: '1px solid #D1D5DB', borderRadius: '6px', cursor: 'pointer' }} onClick={() => setStep('assets')}>Cancel</button>
-                    <button className="btn-submit" style={{ padding: '8px 20px', background: ACCENT, color: '#fff', border: 'none', borderRadius: '6px', cursor: 'pointer' }} onClick={submitReturn}>
-                      Confirm Return All
-                    </button>
+                  <div style={styles.formActions}>
+                    <button style={styles.btnCancel} onClick={() => setStep('assets')}>Cancel</button>
+                    <button className="gl-btn-primary" style={styles.btnPrimary} onClick={submitReturn}>Confirm Return All</button>
                   </div>
                 </>
               )}
@@ -807,60 +830,57 @@ const AssetReturns = () => {
 
       {/* Print Modal */}
       {showPrintModal && returnedItems.length > 0 && (
-        <div className="modal-overlay" onClick={() => setShowPrintModal(false)}>
-          <div className="modal modal-large" onClick={(e) => e.stopPropagation()} style={{ maxWidth: '900px', background: '#fff', borderRadius: '12px' }}>
-            <div className="modal-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '16px 20px', borderBottom: '1px solid #E5E7EB' }}>
-              <h2 style={{ fontSize: '20px', fontWeight: 600 }}>📄 Return Voucher</h2>
-              <button className="close-btn" onClick={() => setShowPrintModal(false)} style={{ background: 'none', border: 'none', fontSize: '24px', cursor: 'pointer' }}>
-                <FaTimes />
-              </button>
+        <div style={styles.overlay} onClick={() => setShowPrintModal(false)}>
+          <div style={{ ...styles.modal, maxWidth: '920px' }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>📄 Return Voucher</h2>
+              <button style={styles.closeBtn} onClick={() => setShowPrintModal(false)}>×</button>
             </div>
-            <div className="modal-body" ref={printRef} style={{ padding: '20px' }}>
-              <div className="voucher-content">
-                <div className="header" style={{ textAlign: 'center', fontSize: '24px', fontWeight: 'bold', borderBottom: '2px solid #000', paddingBottom: '10px' }}>RETURN VOUCHER</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', margin: '10px 0' }}>
+            <div style={styles.modalBody} ref={printRef}>
+              <div>
+                <div style={styles.voucherHeader}>RETURN VOUCHER</div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', margin: '14px 0 8px', fontSize: '13px' }}>
                   <div><strong>Returned By:</strong> {returnedItems[0].returned_by}</div>
                   <div><strong>Return Date:</strong> {formatDate(returnedItems[0].return_date)}</div>
                   <div><strong>Email:</strong> {returnedItems[0].email || '-'}</div>
                   <div><strong>Mobile:</strong> {returnedItems[0].mobile_number || '-'}</div>
                 </div>
-                <div style={{ margin: '5px 0' }}>
+                <div style={{ margin: '5px 0', fontSize: '13px' }}>
                   <strong>Backup Done:</strong> {returnedItems[0].backup_done ? '✅ Yes' : '❌ No'}
                 </div>
                 {returnedItems[0].remarks && (
-                  <div style={{ margin: '5px 0' }}><strong>Remarks:</strong> {returnedItems[0].remarks}</div>
+                  <div style={{ margin: '5px 0', fontSize: '13px' }}><strong>Remarks:</strong> {returnedItems[0].remarks}</div>
                 )}
-                <hr />
-                <h4>Returned Items</h4>
-                <table className="items-table" style={{ width: '100%', borderCollapse: 'collapse', margin: '10px 0' }}>
-                  <thead>
-                    <tr>
-                      <th style={{ border: '1px solid #000', padding: '8px', textAlign: 'left' }}>#</th>
-                      <th style={{ border: '1px solid #000', padding: '8px', textAlign: 'left' }}>Item</th>
-                      <th style={{ border: '1px solid #000', padding: '8px', textAlign: 'left' }}>Serial No</th>
-                      <th style={{ border: '1px solid #000', padding: '8px', textAlign: 'left' }}>Asset</th>
-                    </tr>
-                  </thead>
+                <div style={styles.divider} />
+                <h4 style={{ fontSize: '13px', fontWeight: 700, color: INK, margin: '12px 0 8px' }}>Returned Items</h4>
+                <table style={styles.table}>
+                  <thead><tr><th style={styles.th}>#</th><th style={styles.th}>Item</th><th style={styles.th}>Serial No</th><th style={styles.th}>Asset</th></tr></thead>
                   <tbody>
                     {returnedItems.map((item, idx) => (
-                      <tr key={item.id}>
-                        <td style={{ border: '1px solid #000', padding: '8px' }}>{idx + 1}</td>
-                        <td style={{ border: '1px solid #000', padding: '8px' }}>{item.name}</td>
-                        <td style={{ border: '1px solid #000', padding: '8px' }}>{item.serial_number || '-'}</td>
-                        <td style={{ border: '1px solid #000', padding: '8px' }}>{item.asset || '-'}</td>
+                      <tr key={item.id} className="gl-row">
+                        <td style={styles.td}>{idx + 1}</td>
+                        <td style={{ ...styles.td, fontWeight: 600 }}>{item.name}</td>
+                        <td style={{ ...styles.td, fontFamily: "'JetBrains Mono', monospace", fontSize: '12.5px' }}>{item.serial_number || '-'}</td>
+                        <td style={styles.td}>{item.asset || '-'}</td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <div style={{ marginTop: '20px', display: 'flex', justifyContent: 'space-between' }}>
-                  <div><strong>Returned By</strong><br /><span style={{ borderTop: '1px solid #000', display: 'inline-block', paddingTop: '5px', minWidth: '150px' }}>{returnedItems[0].returned_by}</span></div>
-                  <div><strong>Received By (System)</strong><br /><span style={{ borderTop: '1px solid #000', display: 'inline-block', paddingTop: '5px', minWidth: '150px' }}>Inventory</span></div>
+                <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'space-between' }}>
+                  <div style={{ fontSize: '13px' }}>
+                    <strong>Returned By</strong><br />
+                    <span style={{ borderTop: `1px solid ${INK}`, display: 'inline-block', paddingTop: '5px', minWidth: '150px', marginTop: '18px' }}>{returnedItems[0].returned_by}</span>
+                  </div>
+                  <div style={{ fontSize: '13px' }}>
+                    <strong>Received By (System)</strong><br />
+                    <span style={{ borderTop: `1px solid ${INK}`, display: 'inline-block', paddingTop: '5px', minWidth: '150px', marginTop: '18px' }}>Inventory</span>
+                  </div>
                 </div>
               </div>
             </div>
-            <div className="form-actions no-print" style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', padding: '16px 20px', borderTop: '1px solid #E5E7EB' }}>
-              <button className="btn-cancel" onClick={() => setShowPrintModal(false)}>Close</button>
-              <button className="btn-primary" style={{ ...styles.btnPrimary }} onClick={handlePrint}><FaPrint /> Print</button>
+            <div style={{ ...styles.formActions, padding: '14px 20px' }} className="no-print">
+              <button style={styles.btnCancel} onClick={() => setShowPrintModal(false)}>Close</button>
+              <button className="gl-btn-primary" style={styles.btnPrimary} onClick={handlePrint}><FaPrint size={12} /> Print</button>
             </div>
           </div>
         </div>
@@ -869,40 +889,59 @@ const AssetReturns = () => {
   );
 };
 
-
-
-// ---------- Styles ----------
+// ---------- Styles (matching AssetAssignment) ----------
 const styles = {
   page: {
     minHeight: '100%',
-    background: '#F6F6F8',
+    background: PAPER,
     fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
   },
-  shell: {
-    display: 'flex',
-    alignItems: 'flex-start',
-    gap: '0',
-    minHeight: '100vh',
+  frame: {
+    maxWidth: '1400px',
+    margin: '0 auto',
+    padding: '20px 28px 48px',
   },
-  main: {
-    flex: 1,
-    minWidth: 0,
-    padding: '24px 32px 40px',
-  },
-  mainHeader: {
+  topbar: {
     display: 'flex',
     flexWrap: 'wrap',
     alignItems: 'center',
     justifyContent: 'space-between',
-    gap: '14px',
+    gap: '16px',
+    paddingBottom: '18px',
+    borderBottom: `2px solid ${INK}`,
     marginBottom: '18px',
   },
-  listTitle: {
-    fontSize: '19px',
+  brandBlock: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '12px',
+  },
+  mark: {
+    width: '38px',
+    height: '38px',
+    borderRadius: '8px',
+    background: INK,
+    color: '#fff',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  },
+  brandTitle: {
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: '20px',
     fontWeight: 700,
-    color: '#111827',
+    color: INK,
     margin: 0,
-    lineHeight: 1.3,
+    lineHeight: 1.25,
+  },
+  brandSub: {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: '11px',
+    color: '#8A8371',
+    textTransform: 'uppercase',
+    letterSpacing: '0.06em',
+    margin: '2px 0 0',
   },
   headerActions: {
     display: 'flex',
@@ -913,12 +952,12 @@ const styles = {
     position: 'relative',
     display: 'flex',
     alignItems: 'center',
-    width: '220px',
+    width: '230px',
   },
   searchIcon: {
     position: 'absolute',
     left: '11px',
-    color: '#9CA3AF',
+    color: '#9C9585',
     pointerEvents: 'none',
   },
   searchInput: {
@@ -926,66 +965,19 @@ const styles = {
     height: '36px',
     padding: '0 12px 0 32px',
     borderRadius: '8px',
-    border: '1px solid #E5E7EB',
+    border: '1px solid #DEDACD',
     background: '#fff',
     fontSize: '13px',
     outline: 'none',
-    color: '#1F2937',
-  },
-  tabsContainer: {
-    display: 'flex',
-    gap: '0',
-    borderBottom: '2px solid #E5E7EB',
-    marginBottom: '20px',
-  },
-  tab: {
-    padding: '10px 24px',
-    fontSize: '14px',
-    fontWeight: 600,
-    border: 'none',
-    background: 'transparent',
-    cursor: 'pointer',
-    transition: 'all 0.2s',
-  },
-  tableCard: {
-    borderRadius: '12px',
-    overflow: 'hidden',
-    background: '#fff',
-    border: '1px solid #ECEDF1',
-  },
-  tableScroll: {
-    overflowX: 'auto',
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    fontSize: '13px',
-  },
-  th: {
-    textAlign: 'left',
-    padding: '11px 16px',
-    background: '#FAFAFB',
-    color: '#9CA3AF',
-    fontWeight: 600,
-    fontSize: '11px',
-    textTransform: 'uppercase',
-    letterSpacing: '0.03em',
-    borderBottom: '1px solid #ECEDF1',
-    whiteSpace: 'nowrap',
-  },
-  td: {
-    padding: '12px 16px',
-    borderBottom: '1px solid #F3F4F6',
-    color: '#374151',
-    whiteSpace: 'nowrap',
+    color: INK,
   },
   iconOnlyBtn: {
     width: '36px',
     height: '36px',
     borderRadius: '8px',
-    border: '1px solid #E5E7EB',
+    border: '1px solid #DEDACD',
     background: '#fff',
-    color: '#4B5563',
+    color: '#57503F',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -998,7 +990,7 @@ const styles = {
     gap: '7px',
     height: '36px',
     padding: '0 15px',
-    background: ACCENT,
+    background: TEAL,
     color: '#fff',
     border: 'none',
     borderRadius: '8px',
@@ -1006,6 +998,17 @@ const styles = {
     fontWeight: 600,
     cursor: 'pointer',
     whiteSpace: 'nowrap',
+  },
+  btnCancel: {
+    height: '36px',
+    padding: '0 15px',
+    background: '#fff',
+    color: '#3A3626',
+    border: '1px solid #DEDACD',
+    borderRadius: '8px',
+    fontSize: '13px',
+    fontWeight: 600,
+    cursor: 'pointer',
   },
   dropdown: {
     position: 'absolute',
@@ -1018,13 +1021,13 @@ const styles = {
     overflowY: 'auto',
     zIndex: 20,
     background: '#fff',
-    border: '1px solid #E5E7EB',
-    boxShadow: '0 10px 24px rgba(17,24,39,0.10)',
+    border: '1px solid #E5E1D3',
+    boxShadow: '0 10px 24px rgba(20,22,31,0.12)',
   },
   dropdownHeader: {
     fontSize: '11px',
     fontWeight: 700,
-    color: '#9CA3AF',
+    color: '#9C9585',
     textTransform: 'uppercase',
     letterSpacing: '0.04em',
     padding: '6px 8px',
@@ -1035,10 +1038,126 @@ const styles = {
     gap: '9px',
     padding: '7px 8px',
     fontSize: '13px',
-    color: '#374151',
+    color: '#3A3626',
     borderRadius: '6px',
     cursor: 'pointer',
   },
+  exportOption: {
+    display: 'block',
+    width: '100%',
+    textAlign: 'left',
+    padding: '9px 10px',
+    fontSize: '13px',
+    color: '#3A3626',
+    background: 'transparent',
+    border: 'none',
+    borderRadius: '6px',
+    cursor: 'pointer',
+  },
+  statStrip: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '28px',
+    padding: '14px 20px',
+    marginBottom: '16px',
+    background: INK,
+    borderRadius: '10px',
+    flexWrap: 'wrap',
+  },
+  statBlock: {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '3px',
+  },
+  statValue: {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: '17px',
+    fontWeight: 700,
+    color: '#fff',
+  },
+  statLabel: {
+    fontSize: '10.5px',
+    color: '#A9A392',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+  },
+  statDivider: {
+    width: '1px',
+    height: '28px',
+    background: 'rgba(255,255,255,0.14)',
+  },
+  tabRow: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '8px',
+    overflowX: 'auto',
+    paddingBottom: '4px',
+    marginBottom: '18px',
+  },
+  tabPill: {
+    display: 'flex',
+    alignItems: 'center',
+    gap: '7px',
+    height: '34px',
+    padding: '0 13px',
+    borderRadius: '8px',
+    border: '1px solid #DEDACD',
+    background: '#fff',
+    fontSize: '13px',
+    fontWeight: 500,
+    color: '#3A3626',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
+  },
+  tabPillActive: {
+    background: INK,
+    borderColor: INK,
+    color: '#fff',
+    fontWeight: 600,
+  },
+  tabCount: {
+    fontFamily: "'JetBrains Mono', monospace",
+    fontSize: '11px',
+    fontWeight: 600,
+    color: '#9C9585',
+  },
+  tabCountActive: {
+    color: 'rgba(255,255,255,0.75)',
+  },
+  tableCard: {
+    borderRadius: '12px',
+    overflow: 'hidden',
+    background: '#fff',
+    border: '1px solid #E5E1D3',
+  },
+  tableScroll: {
+    overflowX: 'auto',
+  },
+  table: {
+    width: '100%',
+    borderCollapse: 'collapse',
+    fontSize: '13px',
+  },
+  th: {
+    textAlign: 'left',
+    padding: '11px 16px',
+    background: '#FAF8F3',
+    color: '#9C9585',
+    fontWeight: 700,
+    fontSize: '10.5px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.05em',
+    borderBottom: '1px solid #E5E1D3',
+    whiteSpace: 'nowrap',
+  },
+  td: {
+    padding: '12px 16px',
+    borderBottom: '1px solid #F1EEE6',
+    color: '#3A3626',
+    whiteSpace: 'nowrap',
+  },
+  dash: { color: '#D2CDBD' },
   sidebar: {
     width: '220px',
     flexShrink: 0,
@@ -1050,7 +1169,7 @@ const styles = {
     gap: '7px',
     fontSize: '11px',
     fontWeight: 700,
-    color: '#9CA3AF',
+    color: '#9C9585',
     textTransform: 'uppercase',
     letterSpacing: '0.05em',
     padding: '0 10px',
@@ -1068,7 +1187,7 @@ const styles = {
     background: 'transparent',
     fontSize: '13px',
     fontWeight: 500,
-    color: '#4B5563',
+    color: '#3A3626',
     cursor: 'pointer',
     textAlign: 'left',
     width: '100%',
@@ -1095,21 +1214,11 @@ const styles = {
   navCount: {
     fontSize: '11px',
     fontWeight: 600,
-    color: '#9CA3AF',
+    color: '#9C9585',
     flexShrink: 0,
   },
   navCountActive: {
     color: 'rgba(255,255,255,0.7)',
-  },
-  input: {
-    width: '100%',
-    padding: '8px 12px',
-    borderRadius: '6px',
-    border: '1px solid #D1D5DB',
-    fontSize: '14px',
-    outline: 'none',
-    background: '#fff',
-    color: '#1F2937',
   },
   emptyWrap: {
     display: 'flex',
@@ -1122,8 +1231,8 @@ const styles = {
     width: '48px',
     height: '48px',
     borderRadius: '12px',
-    background: '#F3F4F6',
-    color: '#9CA3AF',
+    background: '#F1EEE6',
+    color: '#9C9585',
     display: 'flex',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1140,23 +1249,136 @@ const styles = {
   spinner: {
     width: '30px',
     height: '30px',
-    border: '3px solid #E5E7EB',
-    borderTopColor: ACCENT,
+    border: '3px solid #E5E1D3',
+    borderTopColor: TEAL,
     borderRadius: '50%',
     animation: 'gl-spin 0.8s linear infinite',
   },
-  loadingText: { color: '#6B7280', fontSize: '14px', margin: 0 },
+  loadingText: { color: '#6B6353', fontSize: '14px', margin: 0 },
+  overlay: {
+    position: 'fixed',
+    inset: 0,
+    background: 'rgba(20,22,31,0.45)',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 100,
+    padding: '20px',
+  },
+  modal: {
+    background: '#fff',
+    borderRadius: '14px',
+    width: '100%',
+    maxHeight: '88vh',
+    overflowY: 'auto',
+    boxShadow: '0 24px 60px rgba(20,22,31,0.25)',
+  },
+  modalHeader: {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    padding: '18px 20px',
+    borderBottom: '1px solid #E5E1D3',
+    position: 'sticky',
+    top: 0,
+    background: '#fff',
+    zIndex: 1,
+  },
+  modalTitle: {
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: '16px',
+    fontWeight: 700,
+    color: INK,
+    margin: 0,
+  },
+  closeBtn: {
+    width: '30px',
+    height: '30px',
+    borderRadius: '7px',
+    border: 'none',
+    background: 'transparent',
+    color: '#9C9585',
+    fontSize: '20px',
+    lineHeight: 1,
+    cursor: 'pointer',
+  },
+  modalBody: {
+    padding: '20px',
+  },
+  formGroup: {
+    marginBottom: '14px',
+    display: 'flex',
+    flexDirection: 'column',
+    gap: '6px',
+  },
+  label: {
+    fontSize: '11.5px',
+    fontWeight: 700,
+    color: '#9C9585',
+    textTransform: 'uppercase',
+    letterSpacing: '0.04em',
+  },
+  input: {
+    height: '38px',
+    padding: '0 12px',
+    borderRadius: '8px',
+    border: '1px solid #DEDACD',
+    fontSize: '13px',
+    color: INK,
+    outline: 'none',
+    fontFamily: "'Inter', sans-serif",
+  },
+  formActions: {
+    display: 'flex',
+    justifyContent: 'flex-end',
+    gap: '10px',
+    marginTop: '10px',
+  },
+  divider: {
+    height: '1px',
+    background: '#E5E1D3',
+    margin: '12px 0',
+  },
+  voucherHeader: {
+    textAlign: 'center',
+    fontFamily: "'Space Grotesk', sans-serif",
+    fontSize: '18px',
+    fontWeight: 700,
+    color: INK,
+    borderBottom: `2px solid ${INK}`,
+    paddingBottom: '10px',
+  },
+  iconBtn: {
+    width: '28px',
+    height: '28px',
+    borderRadius: '7px',
+    border: 'none',
+    background: 'transparent',
+    color: '#9C9585',
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    cursor: 'pointer',
+  },
 };
 
 const sheet = `
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@600;700&family=JetBrains+Mono:wght@500;600;700&display=swap');
+
 @keyframes gl-spin { to { transform: rotate(360deg); } }
+
 .gl-row { transition: background 0.12s ease; }
-.gl-row:hover { background: #FAFAFB; }
+.gl-row:hover { background: #FAF8F3; }
 .gl-btn-primary { transition: opacity 0.15s ease; }
 .gl-btn-primary:hover { opacity: 0.9; }
 .gl-icon-btn { transition: all 0.12s ease; }
-input[type=text]::placeholder { color: #9CA3AF; }
-input:focus { border-color: #4F46E5 !important; box-shadow: 0 0 0 3px rgba(79,70,229,0.12); }
+.gl-checkbox-row:hover { background: #FAF8F3; }
+input[type=text]::placeholder, input[type=email]::placeholder, textarea::placeholder { color: #B9B3A4; }
+input:focus, select:focus, textarea:focus { border-color: #1F6F78 !important; box-shadow: 0 0 0 3px rgba(31,111,120,0.12); outline: none; }
+
+@media print {
+  .no-print { display: none; }
+}
 `;
 
 export default AssetReturns;

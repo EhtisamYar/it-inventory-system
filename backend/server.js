@@ -50,11 +50,9 @@ app.get('/api/inventory/types', (req, res) => {
     });
 });
 
-// ✅ UPDATED: Accepts 'columns' array to set column visibility per category
 app.post('/api/inventory/types', (req, res) => {
-    const { name, icon, columns } = req.body;  // columns = array of column keys (e.g., ['name','qty'])
+    const { name, icon, columns } = req.body;
 
-    // Insert the new category
     db.query(
         'INSERT INTO inventory_types (name, icon) VALUES (?, ?)',
         [name, icon || '📦'],
@@ -63,9 +61,7 @@ app.post('/api/inventory/types', (req, res) => {
 
             const categoryId = result.insertId;
 
-            // If columns were provided, save them to category_columns
             if (columns && columns.length > 0) {
-                // All possible column keys (must match frontend ALL_COLUMNS)
                 const allColumns = [
                     'category', 'name', 'brand', 'model', 'serial_number', 
                     'specifications', 'quantity', 'price', 'asset', 'asset_code', 
@@ -73,11 +69,10 @@ app.post('/api/inventory/types', (req, res) => {
                     'assigned_to', 'employee_id', 'designation', 'date_of_issuance'
                 ];
 
-                // Build insert values: for each column, is_visible = 1 if in columns array, else 0
                 const insertValues = allColumns.map((key, index) => [
                     categoryId,
                     key,
-                    key, // label (store the key as label; frontend will send the actual label)
+                    key,
                     columns.includes(key) ? 1 : 0,
                     index
                 ]);
@@ -89,7 +84,6 @@ app.post('/api/inventory/types', (req, res) => {
                 db.query(insertQuery, [insertValues], (err2) => {
                     if (err2) {
                         console.error('❌ Error inserting category columns:', err2);
-                        // Return success for the category but log the error
                         return res.status(201).json({ 
                             message: 'Type added successfully, but column settings failed', 
                             id: categoryId 
@@ -101,7 +95,6 @@ app.post('/api/inventory/types', (req, res) => {
                     });
                 });
             } else {
-                // No columns provided – default: all visible (no entries in category_columns)
                 res.status(201).json({ 
                     message: 'Type added successfully', 
                     id: categoryId 
@@ -162,7 +155,8 @@ app.post('/api/inventory/items', (req, res) => {
         purchase_date, warranty_until, assigned_to, location, notes,
         issued_by, department, station, assigned_date,
         employee_id, date_of_issuance, designation,
-        issuance_number, backup_done
+        issuance_number, backup_done,
+        email
     } = req.body;
 
     const query = `
@@ -172,8 +166,8 @@ app.post('/api/inventory/items', (req, res) => {
          purchase_date, warranty_until, assigned_to, location, notes,
          issued_by, department, station, assigned_date,
          employee_id, date_of_issuance, designation,
-         issuance_number, backup_done)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         issuance_number, backup_done, email)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     const values = [
         type_id,
@@ -201,7 +195,8 @@ app.post('/api/inventory/items', (req, res) => {
         date_of_issuance || null,
         designation || null,
         issuance_number || null,
-        backup_done ? 1 : 0
+        backup_done ? 1 : 0,
+        email || null
     ];
 
     db.query(query, values, (err, result) => {
@@ -235,7 +230,8 @@ app.put('/api/inventory/items/:id', (req, res) => {
         'purchase_date', 'warranty_until', 'assigned_to', 'location', 'notes',
         'issued_by', 'department', 'station', 'assigned_date',
         'employee_id', 'date_of_issuance', 'designation',
-        'issuance_number', 'backup_done'
+        'issuance_number', 'backup_done',
+        'email'
     ];
 
     for (const key of allowedColumns) {
@@ -305,6 +301,23 @@ app.get('/api/inventory/search', (req, res) => {
         WHERE i.name LIKE ? OR i.brand LIKE ? OR i.model LIKE ? OR i.serial_number LIKE ?
     `;
     db.query(query, [searchTerm, searchTerm, searchTerm, searchTerm], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results);
+    });
+});
+
+// ============================================
+// CONDEMNED ITEMS (NEW)
+// ============================================
+app.get('/api/inventory/condemned', (req, res) => {
+    const query = `
+        SELECT i.*, t.name as type_name, t.icon as type_icon
+        FROM inventory_items i
+        JOIN inventory_types t ON i.type_id = t.id
+        WHERE i.condition = 'Condemned'
+        ORDER BY i.name
+    `;
+    db.query(query, (err, results) => {
         if (err) return res.status(500).json({ error: err.message });
         res.json(results);
     });
@@ -496,8 +509,6 @@ app.put('/api/service/history/:id', (req, res) => {
 // ============================================
 // ITEM RETURN FEATURE
 // ============================================
-
-// Return an item (unassign + log return)
 app.post('/api/inventory/return', (req, res) => {
   const { item_id, email, backup_done, remarks, returned_by, mobile_number, return_date } = req.body;
 
@@ -505,7 +516,6 @@ app.post('/api/inventory/return', (req, res) => {
     return res.status(400).json({ error: 'Item ID is required' });
   }
 
-  // 1. Clear assignment fields on the item
   const clearItem = `
     UPDATE inventory_items SET
       assigned_to = NULL,
@@ -525,7 +535,6 @@ app.post('/api/inventory/return', (req, res) => {
     if (err) return res.status(500).json({ error: err.message });
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Item not found' });
 
-    // 2. Insert return record with all fields
     const insertReturn = `
       INSERT INTO item_returns (item_id, returned_by, email, backup_done, remarks, mobile_number, return_date)
       VALUES (?, ?, ?, ?, ?, ?, ?)
@@ -553,8 +562,6 @@ app.post('/api/inventory/return', (req, res) => {
 // ============================================
 // CATEGORY COLUMNS MANAGEMENT
 // ============================================
-
-// Get all columns for a category
 app.get('/api/category-columns/:categoryId', (req, res) => {
     const { categoryId } = req.params;
     const query = `
@@ -568,12 +575,10 @@ app.get('/api/category-columns/:categoryId', (req, res) => {
     });
 });
 
-// Update column visibility for a category
 app.put('/api/category-columns/:categoryId', (req, res) => {
     const { categoryId } = req.params;
-    const { columns } = req.body; // Array of { column_key, column_label, is_visible }
+    const { columns } = req.body;
 
-    // Delete all existing entries for this category
     db.query('DELETE FROM category_columns WHERE category_id = ?', [categoryId], (err) => {
         if (err) return res.status(500).json({ error: err.message });
 
@@ -581,7 +586,6 @@ app.put('/api/category-columns/:categoryId', (req, res) => {
             return res.json({ message: 'All columns removed' });
         }
 
-        // Insert new configurations
         const insertQuery = `
             INSERT INTO category_columns (category_id, column_key, column_label, is_visible, display_order)
             VALUES ?
@@ -601,14 +605,16 @@ app.put('/api/category-columns/:categoryId', (req, res) => {
     });
 });
 
+// --------------------------------------------
+// IMPORT EXCEL
+// --------------------------------------------
 const multer = require('multer');
 const xlsx = require('xlsx');
 const path = require('path');
 
-// Configure multer for file uploads
 const storage = multer.diskStorage({
     destination: function (req, file, cb) {
-        cb(null, 'uploads/'); // temporary folder
+        cb(null, 'uploads/');
     },
     filename: function (req, file, cb) {
         cb(null, Date.now() + '-' + file.originalname);
@@ -616,7 +622,7 @@ const storage = multer.diskStorage({
 });
 const upload = multer({
     storage: storage,
-    limits: { fileSize: 5 * 1024 * 1024 }, // 5MB
+    limits: { fileSize: 5 * 1024 * 1024 },
     fileFilter: (req, file, cb) => {
         const ext = path.extname(file.originalname);
         if (ext === '.xlsx' || ext === '.xls') {
@@ -627,7 +633,6 @@ const upload = multer({
     }
 });
 
-// Import Excel endpoint
 app.post('/api/inventory/import/:categoryId', upload.single('file'), async (req, res) => {
     try {
         const categoryId = req.params.categoryId;
@@ -637,7 +642,6 @@ app.post('/api/inventory/import/:categoryId', upload.single('file'), async (req,
             return res.status(400).json({ error: 'No file uploaded' });
         }
 
-        // Read the Excel file
         const workbook = xlsx.readFile(file.path);
         const sheetName = workbook.SheetNames[0];
         const sheet = workbook.Sheets[sheetName];
@@ -647,8 +651,6 @@ app.post('/api/inventory/import/:categoryId', upload.single('file'), async (req,
             return res.status(400).json({ error: 'The file is empty or has no valid data' });
         }
 
-        // Define column mapping (Excel header → DB column)
-        // You can extend this mapping based on your sheets
         const columnMapping = {
             'Name': 'name',
             'Item': 'name',
@@ -679,11 +681,10 @@ app.post('/api/inventory/import/:categoryId', upload.single('file'), async (req,
             'Condition': 'condition',
             'Specifications': 'specifications',
             'Specs': 'specifications',
-            'OS': 'os', // we can add os field? Not in schema, we'll ignore or add to notes.
+            'OS': 'os',
             'RAM': 'ram',
         };
 
-        // Map headers to DB columns
         const headers = Object.keys(data[0]);
         const dbColumns = headers.map(h => columnMapping[h] || null).filter(c => c !== null);
 
@@ -691,7 +692,6 @@ app.post('/api/inventory/import/:categoryId', upload.single('file'), async (req,
             return res.status(400).json({ error: 'No recognized columns in the file. Please ensure headers match: Name, Brand, Model, QTY, Price, TAG, Location, etc.' });
         }
 
-        // Build insert statement dynamically
         const insertColumns = ['type_id', ...dbColumns];
         const placeholders = insertColumns.map(() => '?').join(', ');
         const columnsString = insertColumns.map(c => `\`${c}\``).join(', ');
@@ -701,22 +701,18 @@ app.post('/api/inventory/import/:categoryId', upload.single('file'), async (req,
         let insertedCount = 0;
         let skippedCount = 0;
 
-        // Process each row
         for (const row of data) {
             const values = [];
-            values.push(categoryId); // type_id
+            values.push(categoryId);
             for (const col of dbColumns) {
-                // Try to find the original header that maps to this DB column
                 const header = Object.keys(columnMapping).find(h => columnMapping[h] === col);
                 let cellValue = row[header] !== undefined ? row[header] : null;
 
-                // Clean up strings, convert empty to null
                 if (typeof cellValue === 'string') {
                     cellValue = cellValue.trim();
                     if (cellValue === '') cellValue = null;
                 }
 
-                // Handle numbers (prices)
                 if (col === 'price' && typeof cellValue === 'string') {
                     cellValue = parseFloat(cellValue.replace(/,/g, ''));
                     if (isNaN(cellValue)) cellValue = null;
@@ -725,11 +721,9 @@ app.post('/api/inventory/import/:categoryId', upload.single('file'), async (req,
                 values.push(cellValue);
             }
 
-            // Execute insert
             await new Promise((resolve, reject) => {
                 db.query(insertQuery, values, (err, result) => {
                     if (err) {
-                        // If error, log and skip
                         console.error('Insert error:', err);
                         skippedCount++;
                         resolve();
@@ -745,7 +739,6 @@ app.post('/api/inventory/import/:categoryId', upload.single('file'), async (req,
             });
         }
 
-        // Clean up uploaded file
         const fs = require('fs');
         fs.unlinkSync(file.path);
 
@@ -773,6 +766,7 @@ app.listen(PORT, () => {
     console.log(`   - GET  /api/inventory/items/:typeId`);
     console.log(`   - GET  /api/inventory/stats`);
     console.log(`   - GET  /api/inventory/search?q=keyword`);
+    console.log(`   - GET  /api/inventory/condemned`);  // ✅ added to log
     console.log(`   - POST /api/inventory/types`);
     console.log(`   - POST /api/inventory/items`);
     console.log(`   - PUT  /api/inventory/items/:id`);

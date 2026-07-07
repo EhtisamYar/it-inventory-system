@@ -31,11 +31,12 @@ function App() {
 
   const API_URL = 'http://localhost:5000';
 
-  // Refresh function to be passed to InventoryList (for "Return" action)
+  // Refresh function to be passed to InventoryList
   const handleRefresh = () => {
     if (selectedType === 'master') fetchMasterInventory();
     else if (selectedType === 'it-inventory') fetchItInventory();
     else if (selectedType === 'assignment') fetchAssignmentItems();
+    else if (selectedType === 'condemned') fetchCondemnedItems();   // ✅ added
     else if (selectedType && selectedType !== 'service' && selectedType !== 'returns') {
       fetchItemsByType(selectedType);
     }
@@ -130,6 +131,25 @@ function App() {
     }
   };
 
+  // ✅ New: Fetch condemned items
+  const fetchCondemnedItems = async () => {
+    setLoading(true);
+    setIsMasterInventory(false);
+    setIsAssignment(false);
+    setIsItInventory(false);
+    setSelectedType('condemned');
+    try {
+      const response = await axios.get(`${API_URL}/api/inventory/condemned`);
+      console.log('✅ Condemned Items:', response.data);
+      setInventoryItems(response.data);
+      setFilteredItems(response.data);
+    } catch (error) {
+      console.error('❌ Error fetching condemned items:', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const handleSelectType = (typeId) => {
     console.log('🔍 Selected Type:', typeId);
     if (typeId === 'master') {
@@ -152,6 +172,8 @@ function App() {
       setIsItInventory(false);
       setInventoryItems([]);
       setFilteredItems([]);
+    } else if (typeId === 'condemned') {   // ✅ new
+      fetchCondemnedItems();
     } else if (typeId === null) {
       setSelectedType(null);
       setIsMasterInventory(false);
@@ -228,6 +250,7 @@ function App() {
       if (selectedType === 'master') fetchMasterInventory();
       else if (selectedType === 'assignment') fetchAssignmentItems();
       else if (selectedType === 'it-inventory') fetchItInventory();
+      else if (selectedType === 'condemned') fetchCondemnedItems();   // ✅ added
       else if (selectedType && selectedType !== 'master' && selectedType !== 'assignment' && selectedType !== 'it-inventory' && selectedType !== 'service' && selectedType !== 'returns') {
         fetchItemsByType(selectedType);
       }
@@ -256,6 +279,7 @@ function App() {
       if (selectedType === 'master') fetchMasterInventory();
       else if (selectedType === 'assignment') fetchAssignmentItems();
       else if (selectedType === 'it-inventory') fetchItInventory();
+      else if (selectedType === 'condemned') fetchCondemnedItems();   // ✅ added
       else if (selectedType && selectedType !== 'master' && selectedType !== 'assignment' && selectedType !== 'it-inventory' && selectedType !== 'service' && selectedType !== 'returns') {
         fetchItemsByType(selectedType);
       }
@@ -337,6 +361,7 @@ function App() {
         if (selectedType === 'master') fetchMasterInventory();
         else if (selectedType === 'assignment') fetchAssignmentItems();
         else if (selectedType === 'it-inventory') fetchItInventory();
+        else if (selectedType === 'condemned') fetchCondemnedItems();   // ✅ added
         else if (selectedType && selectedType !== 'master' && selectedType !== 'assignment' && selectedType !== 'it-inventory' && selectedType !== 'service' && selectedType !== 'returns') {
           fetchItemsByType(selectedType);
         }
@@ -353,6 +378,7 @@ function App() {
     if (selectedType === 'master') return 'master';
     if (selectedType === 'it-inventory') return 'it-inventory';
     if (selectedType === 'assignment') return 'assignment';
+    if (selectedType === 'condemned') return 'condemned';   // ✅ added
     if (selectedType === 'service' || selectedType === 'returns') return selectedType;
     const type = inventoryTypes.find(t => t.id === selectedType);
     return type ? type.name : 'default';
@@ -363,6 +389,7 @@ function App() {
     if (selectedType === 'master') return 'Master Inventory';
     if (selectedType === 'it-inventory') return 'IT Inventory (Unassigned)';
     if (selectedType === 'assignment') return 'Asset Assignment';
+    if (selectedType === 'condemned') return 'Condemned Items';   // ✅ added
     const type = inventoryTypes.find(t => t.id === selectedType);
     return type ? type.name : 'Inventory';
   };
@@ -374,7 +401,8 @@ function App() {
            selectedType !== 'it-inventory' && 
            selectedType !== 'assignment' && 
            selectedType !== 'service' && 
-           selectedType !== 'returns';
+           selectedType !== 'returns' &&
+           selectedType !== 'condemned';   // ✅ added
   };
 
   return (
@@ -398,7 +426,7 @@ function App() {
             onClose={() => setShowAddItem(false)}
             onAdd={handleAddItem}
             types={inventoryTypes}
-            defaultCategoryId={isSpecificCategory() ? selectedType : null}   // ✅ auto‑select category
+            defaultCategoryId={isSpecificCategory() ? selectedType : null}
           />
         )}
 
@@ -432,6 +460,24 @@ function App() {
             onView={handleViewItem}
             onReturn={handleReturnItem}
             types={inventoryTypes}
+          />
+        ) : selectedType === 'condemned' ? (   // ✅ new case
+          <InventoryList 
+            items={filteredItems}
+            loading={loading}
+            onAddItem={() => setShowAddItem(true)}
+            onDeleteItem={handleDeleteItem}
+            onViewItem={handleViewItem}
+            onEditItem={handleEditItem}
+            searchTerm={searchTerm}
+            onSearch={handleSearch}
+            title="Condemned Items"
+            isMaster={false}
+            isItInventory={false}
+            types={inventoryTypes}
+            categoryId={null}
+            categoryName="condemned"
+            onRefresh={handleRefresh}
           />
         ) : selectedType === 'master' || selectedType === 'it-inventory' || selectedType ? (
           <InventoryList 
