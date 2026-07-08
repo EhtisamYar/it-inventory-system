@@ -509,13 +509,20 @@ app.put('/api/service/history/:id', (req, res) => {
 // ============================================
 // ITEM RETURN FEATURE
 // ============================================
+
+// Return an item (unassign + log return)
 app.post('/api/inventory/return', (req, res) => {
-  const { item_id, email, backup_done, remarks, returned_by, mobile_number, return_date } = req.body;
+  const { 
+    item_id, email, backup_done, remarks, returned_by, mobile_number, return_date,
+    email_backup_done, email_closed,
+    employee_id, designation, station, department, issued_by, date_of_issuance   // ✅ new
+  } = req.body;
 
   if (!item_id) {
     return res.status(400).json({ error: 'Item ID is required' });
   }
 
+  // 1. Clear assignment fields on the item
   const clearItem = `
     UPDATE inventory_items SET
       assigned_to = NULL,
@@ -535,18 +542,30 @@ app.post('/api/inventory/return', (req, res) => {
     if (err) return res.status(500).json({ error: err.message });
     if (result.affectedRows === 0) return res.status(404).json({ error: 'Item not found' });
 
+    // 2. Insert return record with all fields
     const insertReturn = `
-      INSERT INTO item_returns (item_id, returned_by, email, backup_done, remarks, mobile_number, return_date)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO item_returns 
+      (item_id, returned_by, return_date, email, backup_done, remarks, mobile_number, 
+       email_backup_done, email_closed,
+       employee_id, designation, station, department, issued_by, date_of_issuance)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `;
     const values = [
       item_id,
       returned_by || 'System',
+      return_date || new Date().toISOString().split('T')[0],
       email || null,
       backup_done ? 1 : 0,
       remarks || null,
       mobile_number || null,
-      return_date || null
+      email_backup_done ? 1 : 0,
+      email_closed ? 1 : 0,
+      employee_id || null,
+      designation || null,
+      station || null,
+      department || null,
+      issued_by || null,
+      date_of_issuance || null
     ];
 
     db.query(insertReturn, values, (err2, result2) => {
@@ -557,6 +576,35 @@ app.post('/api/inventory/return', (req, res) => {
       });
     });
   });
+});
+
+// ============================================
+// GET ALL RETURNS – FIXED ✅
+// ============================================
+app.get('/api/returns', (req, res) => {
+    const query = `
+        SELECT 
+            r.*,
+            i.name AS item_name,
+            i.serial_number,
+            i.asset,
+            i.specifications,
+            i.location,
+            i.type_id,
+            t.name AS category_name
+        FROM item_returns r
+        JOIN inventory_items i ON r.item_id = i.id
+        JOIN inventory_types t ON i.type_id = t.id
+        ORDER BY r.return_date DESC
+    `;
+    db.query(query, (err, results) => {
+        if (err) {
+            console.error('❌ Error fetching returns:', err);
+            return res.status(500).json({ error: err.message });
+        }
+        console.log(`✅ Found ${results.length} returns`);
+        res.json(results);
+    });
 });
 
 // ============================================
@@ -766,7 +814,8 @@ app.listen(PORT, () => {
     console.log(`   - GET  /api/inventory/items/:typeId`);
     console.log(`   - GET  /api/inventory/stats`);
     console.log(`   - GET  /api/inventory/search?q=keyword`);
-    console.log(`   - GET  /api/inventory/condemned`);  // ✅ added to log
+    console.log(`   - GET  /api/inventory/condemned`);
+    console.log(`   - GET  /api/returns`);          // ✅ fixed
     console.log(`   - POST /api/inventory/types`);
     console.log(`   - POST /api/inventory/items`);
     console.log(`   - PUT  /api/inventory/items/:id`);

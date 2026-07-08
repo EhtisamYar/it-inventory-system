@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import axios from 'axios';
 import { 
   FaUndo, FaSearch, FaFileExcel, FaFilePdf, FaPlus, FaPrint, FaTimes,
-  FaClipboardList, FaInbox, FaColumns, FaLayerGroup, FaUser, FaArrowLeft
+  FaClipboardList, FaInbox, FaColumns, FaLayerGroup, FaUser, FaArrowLeft, FaEye
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -15,15 +15,13 @@ const formatDate = (dateString) => {
   return new Date(dateString).toLocaleDateString('en-GB');
 };
 
-// ---------- Design tokens (match AssetAssignment) ----------
+// ---------- Design tokens ----------
 const PAPER = '#F2F0EA';
 const INK = '#14161F';
 const TEAL = '#1F6F78';
-const AMBER = '#C08A1E';
 const CATEGORY_TINTS = ['#1F6F78', '#B45309', '#5B4B8A', '#0F766E', '#9A3412', '#4D5B8A', '#7C5A2A', '#3F6B3A'];
 const getTint = (index) => CATEGORY_TINTS[index % CATEGORY_TINTS.length];
 
-// ---------- Tag glyph ----------
 const TagGlyph = ({ color }) => (
   <svg width="14" height="14" viewBox="0 0 14 14" style={{ flexShrink: 0 }}>
     <path
@@ -48,7 +46,7 @@ const COLUMN_DEFS = {
   category: { label: 'Category', always: false },
   returnedBy: { label: 'Returned By', always: false },
   email: { label: 'Email', always: false },
-  backupDone: { label: 'Backup Done', always: false },
+  backup: { label: 'Backup', always: false },  // combined email backup + email closed
   remarks: { label: 'Remarks', always: false },
   returnedDate: { label: 'Returned Date', always: false },
 };
@@ -66,9 +64,9 @@ const AssetReturns = () => {
   const [searchTerm, setSearchTerm] = useState('');
   const [activeCategory, setActiveCategory] = useState(null);
   
-  // ---------- Single Return Modal State ----------
+  // ---------- Return Modal State ----------
   const [showReturnModal, setShowReturnModal] = useState(false);
-  const [step, setStep] = useState('employee'); // 'employee' | 'assets' | 'return'
+  const [step, setStep] = useState('employee');
   const [employeeSearch, setEmployeeSearch] = useState({
     employee_id: '',
     name: '',
@@ -83,12 +81,20 @@ const AssetReturns = () => {
     mobile_number: '',
     backup_done: false,
     remarks: '',
+    email_backup_done: false,
+    email_closed: false,
   });
+  const [quickReturnItem, setQuickReturnItem] = useState(null);
 
   // ---------- Print Modal ----------
   const [showPrintModal, setShowPrintModal] = useState(false);
   const [returnedItems, setReturnedItems] = useState([]);
   const printRef = useRef();
+
+  // ---------- View Return Details Modal ----------
+  const [showViewModal, setShowViewModal] = useState(false);
+  const [viewReturnItem, setViewReturnItem] = useState(null);
+  const viewPrintRef = useRef();
 
   // ---------- Column Visibility ----------
   const [showColumnDropdown, setShowColumnDropdown] = useState(false);
@@ -140,6 +146,7 @@ const AssetReturns = () => {
     setLoading(true);
     try {
       const response = await axios.get(`${API_URL}/api/returns`);
+      console.log('✅ Returns data:', response.data);
       setReturns(response.data);
     } catch (error) {
       console.error('Error fetching returns:', error);
@@ -154,6 +161,7 @@ const AssetReturns = () => {
     setEmployeeSearch({ employee_id: '', name: '', department: '' });
     setFoundAssets([]);
     setSelectedAssets([]);
+    setQuickReturnItem(null);
     setReturnData({
       returned_by: '',
       return_date: new Date().toISOString().split('T')[0],
@@ -161,6 +169,26 @@ const AssetReturns = () => {
       mobile_number: '',
       backup_done: false,
       remarks: '',
+      email_backup_done: false,
+      email_closed: false,
+    });
+    setShowReturnModal(true);
+  };
+
+  const openQuickReturnModal = (item) => {
+    setQuickReturnItem(item);
+    setStep('return');
+    setFoundAssets([]);
+    setSelectedAssets([]);
+    setReturnData({
+      returned_by: '',
+      return_date: new Date().toISOString().split('T')[0],
+      email: '',
+      mobile_number: '',
+      backup_done: false,
+      remarks: '',
+      email_backup_done: false,
+      email_closed: false,
     });
     setShowReturnModal(true);
   };
@@ -225,11 +253,18 @@ const AssetReturns = () => {
     }));
   };
 
+  // ---------- SUBMIT RETURN (UPDATED) ----------
   const submitReturn = async () => {
-    if (selectedAssets.length === 0) {
+    let itemsToReturn = [];
+    if (quickReturnItem) {
+      itemsToReturn = [quickReturnItem];
+    } else if (selectedAssets.length > 0) {
+      itemsToReturn = selectedAssets;
+    } else {
       alert('No assets selected.');
       return;
     }
+
     if (!returnData.returned_by.trim()) {
       alert('Please enter the name of the person returning the item');
       return;
@@ -239,19 +274,36 @@ const AssetReturns = () => {
       const payload = {
         ...returnData,
         backup_done: returnData.backup_done ? 1 : 0,
+        email_backup_done: returnData.email_backup_done ? 1 : 0,
+        email_closed: returnData.email_closed ? 1 : 0,
       };
 
       const results = [];
-      for (const item of selectedAssets) {
+      for (const item of itemsToReturn) {
+        // Include assignment details from the asset
         const response = await axios.post(`${API_URL}/api/inventory/return`, {
           item_id: item.id,
           ...payload,
+          employee_id: item.employee_id,
+          designation: item.designation,
+          station: item.station || item.location,
+          department: item.department || item.type_name,
+          issued_by: item.issued_by,
+          date_of_issuance: item.date_of_issuance,
         });
+        // Store returned item with all fields for the voucher
         results.push({
           ...item,
           ...returnData,
           return_date: returnData.return_date,
           returned_by: returnData.returned_by,
+          // include assignment fields for voucher
+          employee_id: item.employee_id,
+          designation: item.designation,
+          station: item.station || item.location,
+          department: item.department || item.type_name,
+          issued_by: item.issued_by,
+          date_of_issuance: item.date_of_issuance,
         });
       }
 
@@ -259,10 +311,12 @@ const AssetReturns = () => {
       setReturnedItems(results);
       setShowReturnModal(false);
       setShowPrintModal(true);
+      setQuickReturnItem(null);
+      setSelectedAssets([]);
       
       fetchAssignedItems();
       fetchReturns();
-      setTimeout(() => setActiveTab('history'), 500);
+      setTimeout(() => setActiveTab('returned'), 500);
     } catch (error) {
       console.error('Error returning items:', error);
       alert('Failed to return items');
@@ -276,7 +330,7 @@ const AssetReturns = () => {
     const win = window.open('', '_blank');
     win.document.write(`
       <html>
-        <head><title>Return Voucher</title>
+        <head><title>Asset Return Voucher</title>
         <style>
           body { font-family: Arial, sans-serif; padding: 20px; }
           .voucher { max-width: 800px; margin: 0 auto; border: 1px solid #ccc; padding: 20px; }
@@ -297,14 +351,47 @@ const AssetReturns = () => {
     win.document.close();
   };
 
-  // ---------- Export Functions (History) ----------
-  const getExportData = () => {
-    const order = ['item', 'serial', 'asset', 'category', 'returnedBy', 'email', 'backupDone', 'remarks', 'returnedDate'];
+  // ---------- View Return Details ----------
+  const openViewReturn = (item) => {
+    setViewReturnItem(item);
+    setShowViewModal(true);
+  };
+
+  const handleViewPrint = () => {
+    const content = viewPrintRef.current;
+    if (!content) return;
+    const win = window.open('', '_blank');
+    win.document.write(`
+      <html>
+        <head><title>Asset Return Voucher</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 20px; }
+          .voucher { max-width: 800px; margin: 0 auto; border: 1px solid #ccc; padding: 20px; }
+          .header { text-align: center; font-size: 24px; font-weight: bold; border-bottom: 2px solid #000; padding-bottom: 10px; }
+          .details { margin: 15px 0; }
+          .details table { width: 100%; border-collapse: collapse; }
+          .details td { padding: 5px; }
+          .items-table { width: 100%; border-collapse: collapse; margin: 15px 0; }
+          .items-table th, .items-table td { border: 1px solid #000; padding: 8px; text-align: left; }
+          .footer { margin-top: 20px; display: flex; justify-content: space-between; }
+          .signature { width: 200px; text-align: center; border-top: 1px solid #000; padding-top: 5px; }
+          @media print { .no-print { display: none; } }
+        </style>
+        </head>
+        <body>${content.innerHTML}<script>window.onload = function() { window.print(); }</script></body>
+      </html>
+    `);
+    win.document.close();
+  };
+
+  // ---------- Export Functions ----------
+  const getExportData = (data) => {
+    const order = ['item', 'serial', 'asset', 'category', 'returnedBy', 'email', 'backup', 'remarks', 'returnedDate'];
     const headers = ['#'];
     order.forEach(key => {
       if (visibleColumns[key]) headers.push(COLUMN_DEFS[key].label);
     });
-    const rows = filteredReturns.map((r, idx) => {
+    const rows = data.map((r, idx) => {
       const row = { '#': idx + 1 };
       const valueMap = {
         item: r.item_name,
@@ -313,7 +400,9 @@ const AssetReturns = () => {
         category: r.category_name || '-',
         returnedBy: r.returned_by || '-',
         email: r.email || '-',
-        backupDone: r.backup_done ? 'Yes' : 'No',
+        backup: r.email_backup_done && r.email_closed ? '📧✅ 🔒✅' :
+                r.email_backup_done ? '📧✅ 🔒❌' :
+                r.email_closed ? '📧❌ 🔒✅' : '📧❌ 🔒❌',
         remarks: r.remarks || '-',
         returnedDate: formatDate(r.returned_date),
       };
@@ -325,16 +414,16 @@ const AssetReturns = () => {
     return { headers, rows };
   };
 
-  const handleExportExcel = () => {
-    const { headers, rows } = getExportData();
+  const handleExportExcel = (data, filename) => {
+    const { headers, rows } = getExportData(data);
     const wb = XLSX.utils.book_new();
     const ws = XLSX.utils.json_to_sheet(rows, { header: headers });
     XLSX.utils.book_append_sheet(wb, ws, 'Returns');
-    XLSX.writeFile(wb, 'Item_Returns.xlsx');
+    XLSX.writeFile(wb, `${filename}.xlsx`);
   };
 
-  const handleExportPDF = () => {
-    const { headers, rows } = getExportData();
+  const handleExportPDF = (data, filename) => {
+    const { headers, rows } = getExportData(data);
     const doc = new jsPDF('landscape', 'mm', 'a4');
     doc.setFont('helvetica');
     doc.setFontSize(16);
@@ -348,18 +437,48 @@ const AssetReturns = () => {
       headStyles: { fillColor: [31, 111, 120], font: 'helvetica' },
       margin: { left: 10, right: 10 },
     });
-    doc.save('Item_Returns.pdf');
+    doc.save(`${filename}.pdf`);
   };
 
   // ---------- Filtering ----------
-  const filteredReturns = returns.filter(r =>
-    r.item_name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (r.returned_by && r.returned_by.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (r.email && r.email.toLowerCase().includes(searchTerm.toLowerCase())) ||
-    (r.serial_number && r.serial_number.toLowerCase().includes(searchTerm.toLowerCase()))
-  );
+  const filteredReturns = returns.filter(r => {
+    if (activeCategory && r.type_id !== activeCategory) return false;
+    if (searchTerm.trim()) {
+      const term = searchTerm.toLowerCase();
+      return (
+        (r.item_name && r.item_name.toLowerCase().includes(term)) ||
+        (r.returned_by && r.returned_by.toLowerCase().includes(term)) ||
+        (r.email && r.email.toLowerCase().includes(term)) ||
+        (r.serial_number && r.serial_number.toLowerCase().includes(term))
+      );
+    }
+    return true;
+  });
 
-  // ---- Category groups for sidebar ----
+  const getReturnCategories = () => {
+    const map = {};
+    returns.forEach(item => {
+      const key = item.type_id || 'uncategorized';
+      if (!map[key]) {
+        map[key] = {
+          id: key,
+          name: item.category_name || 'Uncategorized',
+          icon: item.type_icon || '📦',
+          count: 0,
+        };
+      }
+      map[key].count += 1;
+    });
+    return Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
+  };
+
+  const returnCategories = getReturnCategories();
+
+  const categoryTintMap = {};
+  returnCategories.forEach((cat, idx) => {
+    categoryTintMap[cat.id] = getTint(idx);
+  });
+
   const getCategoryGroups = () => {
     const map = {};
     assignedItems.forEach(item => {
@@ -379,12 +498,6 @@ const AssetReturns = () => {
 
   const categories = getCategoryGroups();
 
-  const categoryTintMap = {};
-  categories.forEach((cat, idx) => {
-    categoryTintMap[cat.id] = getTint(idx);
-  });
-
-  // ---- Filter assigned items by category and search ----
   const filteredAssigned = assignedItems.filter(item => {
     if (activeCategory && item.type_id !== activeCategory) return false;
     if (searchTerm.trim()) {
@@ -401,7 +514,6 @@ const AssetReturns = () => {
     return true;
   });
 
-  // ---------- Close dropdown on outside click ----------
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (columnRef.current && !columnRef.current.contains(event.target)) {
@@ -412,94 +524,66 @@ const AssetReturns = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // ---------- Render Return Form (with sidebar) ----------
+  // ---------- Render functions ----------
   const renderReturnForm = () => (
-    <div style={{ display: 'flex', gap: '20px' }}>
-      <aside style={{ ...styles.sidebar, width: '200px', flexShrink: 0, borderRight: '1px solid #EAEAEE', paddingRight: '14px' }}>
-        <div style={{ ...styles.sidebarHeader, marginBottom: '8px' }}>
-          <FaLayerGroup size={12} color="#9CA3AF" />
-          <span>Categories</span>
-        </div>
-        <nav style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-          <button
-            onClick={() => setActiveCategory(null)}
-            style={{ ...styles.navItem, ...(!activeCategory ? styles.navItemActive : {}) }}
-          >
-            <span style={styles.navLabel}>All items</span>
-            <span style={{ ...styles.navCount, ...(!activeCategory ? styles.navCountActive : {}) }}>{assignedItems.length}</span>
-          </button>
-          {categories.map(cat => {
-            const tint = categoryTintMap[cat.id];
-            const isActive = activeCategory === cat.id;
-            return (
-              <button
-                key={cat.id}
-                onClick={() => setActiveCategory(isActive ? null : cat.id)}
-                style={{ ...styles.navItem, ...(isActive ? styles.navItemActive : {}) }}
-              >
-                <span style={styles.navLabel}>
-                  <span style={{ ...styles.navDot, background: isActive ? '#fff' : tint }} />
-                  {cat.name}
-                </span>
-                <span style={{ ...styles.navCount, ...(isActive ? styles.navCountActive : {}) }}>{cat.count}</span>
-              </button>
-            );
-          })}
-        </nav>
-      </aside>
+    <div style={{ flex: 1 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: INK }}>
+          {searchTerm.trim() ? `Assets matching "${searchTerm}"` : 'All Assigned Assets'}
+        </h3>
+        <span style={{ fontSize: '14px', color: '#8A8371' }}>
+          {filteredAssigned.length} assigned {filteredAssigned.length === 1 ? 'asset' : 'assets'}
+        </span>
+      </div>
 
-      <div style={{ flex: 1 }}>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-          <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: INK }}>
-            {searchTerm.trim() ? `Assets matching "${searchTerm}"` : 'All Assigned Assets'}
-          </h3>
-          <span style={{ fontSize: '14px', color: '#8A8371' }}>
-            {filteredAssigned.length} assigned {filteredAssigned.length === 1 ? 'asset' : 'assets'}
-          </span>
-        </div>
-
-        <div style={styles.tableScroll}>
-          <table style={styles.table}>
-            <thead>
-              <tr>
-                <th style={styles.th}>Item</th>
-                <th style={styles.th}>Serial No</th>
-                <th style={styles.th}>Asset</th>
-                <th style={styles.th}>Assigned To</th>
-                <th style={styles.th}>Employee ID</th>
-                <th style={styles.th}>Department</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredAssigned.length === 0 ? (
-                <tr><td colSpan="6" style={styles.td}>No assigned items found.</td></tr>
-              ) : (
-                filteredAssigned.map(item => (
-                  <tr key={item.id} className="gl-row">
-                    <td style={{ ...styles.td, fontWeight: 600 }}>{item.name}</td>
-                    <td style={{ ...styles.td, fontFamily: "'JetBrains Mono', monospace", fontSize: '12.5px' }}>{item.serial_number || '-'}</td>
-                    <td style={styles.td}>{item.asset || '-'}</td>
-                    <td style={styles.td}>{item.assigned_to || '-'}</td>
-                    <td style={{ ...styles.td, fontFamily: "'JetBrains Mono', monospace", fontSize: '12.5px' }}>{item.employee_id || '-'}</td>
-                    <td style={styles.td}>{item.department || '-'}</td>
-                  </tr>
-                ))
-              )}
-            </tbody>
-          </table>
-        </div>
+      <div style={styles.tableScroll}>
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              <th style={styles.th}>Item</th>
+              <th style={styles.th}>Serial No</th>
+              <th style={styles.th}>Asset</th>
+              <th style={styles.th}>Assigned To</th>
+              <th style={styles.th}>Employee ID</th>
+              <th style={styles.th}>Department</th>
+              <th style={styles.th}>Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredAssigned.length === 0 ? (
+              <tr><td colSpan="7" style={styles.td}>No assigned items found.</td></tr>
+            ) : (
+              filteredAssigned.map(item => (
+                <tr key={item.id} className="gl-row">
+                  <td style={{ ...styles.td, fontWeight: 600 }}>{item.name}</td>
+                  <td style={{ ...styles.td, fontFamily: "'JetBrains Mono', monospace", fontSize: '12.5px' }}>{item.serial_number || '-'}</td>
+                  <td style={styles.td}>{item.asset || '-'}</td>
+                  <td style={styles.td}>{item.assigned_to || '-'}</td>
+                  <td style={{ ...styles.td, fontFamily: "'JetBrains Mono', monospace", fontSize: '12.5px' }}>{item.employee_id || '-'}</td>
+                  <td style={styles.td}>{item.department || '-'}</td>
+                  <td style={styles.td}>
+                    <button className="gl-btn-primary" style={{ ...styles.btnPrimary, padding: '4px 12px', fontSize: '12px' }} onClick={() => openQuickReturnModal(item)}>
+                      <FaUndo size={12} style={{ marginRight: '4px' }} /> Return
+                    </button>
+                  </td>
+                </tr>
+              ))
+            )}
+          </tbody>
+        </table>
       </div>
     </div>
   );
 
-  const renderHistory = () => {
-    const order = ['item', 'serial', 'asset', 'category', 'returnedBy', 'email', 'backupDone', 'remarks', 'returnedDate'];
+  const renderReturnedAssets = () => {
+    const order = ['item', 'serial', 'asset', 'category', 'returnedBy', 'email', 'backup', 'remarks', 'returnedDate'];
     const headers = [<th key="#" style={styles.th}>#</th>];
     order.forEach(key => {
       if (visibleColumns[key]) {
         headers.push(<th key={key} style={styles.th}>{COLUMN_DEFS[key].label}</th>);
       }
     });
+    headers.push(<th key="actions" style={{ ...styles.th, textAlign: 'right' }}>Actions</th>);
 
     const dash = <span style={styles.dash}>-</span>;
 
@@ -511,7 +595,7 @@ const AssetReturns = () => {
           </thead>
           <tbody>
             {filteredReturns.length === 0 ? (
-              <tr><td colSpan={headers.length} style={styles.td}><div style={styles.emptyWrap}><div style={styles.emptyIcon}><FaInbox size={18} /></div>No returns found.</div></td></tr>
+              <tr><td colSpan={headers.length} style={styles.td}><div style={styles.emptyWrap}><div style={styles.emptyIcon}><FaInbox size={18} /></div>No returned assets found.</div></td></tr>
             ) : (
               filteredReturns.map((r, idx) => {
                 const cells = [<td key="num" style={{ ...styles.td, color: '#B9B3A4' }}>{String(idx + 1).padStart(3, '0')}</td>];
@@ -522,7 +606,13 @@ const AssetReturns = () => {
                   category: r.category_name || dash,
                   returnedBy: r.returned_by || dash,
                   email: r.email || dash,
-                  backupDone: r.backup_done ? '✅ Yes' : '❌ No',
+                  backup: (
+                    <span style={{ fontSize: '13px' }}>
+                      {r.email_backup_done ? '📧✅' : '📧❌'} 
+                      {' '}
+                      {r.email_closed ? '🔒✅' : '🔒❌'}
+                    </span>
+                  ),
                   remarks: r.remarks || dash,
                   returnedDate: formatDate(r.returned_date),
                 };
@@ -531,6 +621,21 @@ const AssetReturns = () => {
                     cells.push(<td key={key} style={styles.td}>{valueMap[key]}</td>);
                   }
                 });
+                cells.push(
+                  <td key="actions" style={{ ...styles.td, textAlign: 'right' }}>
+                    <div style={styles.actionRow}>
+                      <button className="gl-icon-btn gl-icon-view" style={styles.iconBtn} onClick={() => openViewReturn(r)} title="View Details">
+                        <FaEye size={12} />
+                      </button>
+                      <button className="gl-icon-btn gl-icon-print" style={{ ...styles.iconBtn, color: TEAL }} onClick={() => {
+                        setViewReturnItem(r);
+                        setTimeout(() => handleViewPrint(), 100);
+                      }} title="Print Voucher">
+                        <FaPrint size={12} />
+                      </button>
+                    </div>
+                  </td>
+                );
                 return <tr key={r.id} className="gl-row">{cells}</tr>;
               })
             )}
@@ -540,7 +645,6 @@ const AssetReturns = () => {
     );
   };
 
-  // ---------- Loading State ----------
   if (loading) {
     return (
       <div style={styles.page}>
@@ -563,7 +667,7 @@ const AssetReturns = () => {
             <div style={styles.mark}><FaUndo size={14} /></div>
             <div>
               <h1 style={styles.brandTitle}>
-                {activeTab === 'return' ? 'Return an Item' : 'Returns History'}
+                {activeTab === 'return' ? 'Return an Item' : 'Returned Assets'}
               </h1>
               <p style={styles.brandSub}>Fauji Foods · Asset returns</p>
             </div>
@@ -583,40 +687,38 @@ const AssetReturns = () => {
 
             {activeTab === 'return' && (
               <button className="gl-btn-primary" style={{ ...styles.btnPrimary, background: TEAL }} onClick={openReturnModal}>
-                <FaUser size={13} style={{ marginRight: '6px' }} /> Return Equipment
+                <FaUser size={13} style={{ marginRight: '6px' }} /> Bulk Return
               </button>
             )}
 
-            {activeTab === 'history' && (
-              <div style={{ position: 'relative' }} ref={columnRef}>
-                <button style={styles.iconOnlyBtn} onClick={() => setShowColumnDropdown(!showColumnDropdown)} title="Columns">
-                  <FaColumns size={13} />
-                </button>
-                {showColumnDropdown && (
-                  <div style={styles.dropdown}>
-                    <div style={styles.dropdownHeader}>Show columns</div>
-                    {availableColumns.map(key => (
-                      <label key={key} className="gl-checkbox-row" style={styles.checkboxRow}>
-                        <input
-                          type="checkbox"
-                          checked={visibleColumns[key]}
-                          onChange={() => toggleColumn(key)}
-                          style={{ accentColor: TEAL }}
-                        />
-                        {COLUMN_DEFS[key].label}
-                      </label>
-                    ))}
-                  </div>
-                )}
-              </div>
-            )}
-
-            {activeTab === 'history' && (
+            {activeTab === 'returned' && (
               <>
-                <button style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={handleExportExcel} title="Export Excel">
+                <div style={{ position: 'relative' }} ref={columnRef}>
+                  <button style={styles.iconOnlyBtn} onClick={() => setShowColumnDropdown(!showColumnDropdown)} title="Columns">
+                    <FaColumns size={13} />
+                  </button>
+                  {showColumnDropdown && (
+                    <div style={styles.dropdown}>
+                      <div style={styles.dropdownHeader}>Show columns</div>
+                      {availableColumns.map(key => (
+                        <label key={key} className="gl-checkbox-row" style={styles.checkboxRow}>
+                          <input
+                            type="checkbox"
+                            checked={visibleColumns[key]}
+                            onChange={() => toggleColumn(key)}
+                            style={{ accentColor: TEAL }}
+                          />
+                          {COLUMN_DEFS[key].label}
+                        </label>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                <button style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={() => handleExportExcel(filteredReturns, `Item_Returns_${activeTab}`)} title="Export Excel">
                   <FaFileExcel size={13} /> Excel
                 </button>
-                <button style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={handleExportPDF} title="Export PDF">
+                <button style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={() => handleExportPDF(filteredReturns, `Item_Returns_${activeTab}`)} title="Export PDF">
                   <FaFilePdf size={13} /> PDF
                 </button>
               </>
@@ -637,27 +739,27 @@ const AssetReturns = () => {
           </div>
           <div style={styles.statDivider} />
           <div style={styles.statBlock}>
-            <span style={styles.statValue}>{String(categories.length).padStart(2, '0')}</span>
+            <span style={styles.statValue}>{String(returnCategories.length).padStart(2, '0')}</span>
             <span style={styles.statLabel}>Categories</span>
           </div>
           <div style={styles.statDivider} />
           <div style={styles.statBlock}>
-            <span style={styles.statValue}>{filteredAssigned.length}</span>
+            <span style={styles.statValue}>{filteredReturns.length}</span>
             <span style={styles.statLabel}>Matching</span>
           </div>
         </div>
 
-        {/* Category tabs (only on return tab) */}
-        {activeTab === 'return' && categories.length > 0 && (
+        {/* Category tabs for Returned Assets */}
+        {activeTab === 'returned' && returnCategories.length > 0 && (
           <div style={styles.tabRow}>
             <button
               onClick={() => setActiveCategory(null)}
               style={{ ...styles.tabPill, ...(!activeCategory ? styles.tabPillActive : {}) }}
             >
-              All items
-              <span style={{ ...styles.tabCount, ...(!activeCategory ? styles.tabCountActive : {}) }}>{assignedItems.length}</span>
+              All Categories
+              <span style={{ ...styles.tabCount, ...(!activeCategory ? styles.tabCountActive : {}) }}>{returns.length}</span>
             </button>
-            {categories.map(cat => {
+            {returnCategories.map(cat => {
               const tint = categoryTintMap[cat.id];
               const isActive = activeCategory === cat.id;
               return (
@@ -675,13 +777,31 @@ const AssetReturns = () => {
           </div>
         )}
 
-        {/* Main content */}
+        {/* Tabs */}
+        <div style={{ ...styles.tabRow, borderBottom: `2px solid ${INK}`, marginBottom: '20px' }}>
+          <button
+            onClick={() => { setActiveTab('return'); setActiveCategory(null); setSearchTerm(''); }}
+            style={{ ...styles.tabPill, ...(activeTab === 'return' ? styles.tabPillActive : {}), borderBottom: activeTab === 'return' ? `2px solid ${TEAL}` : '2px solid transparent', borderRadius: '0' }}
+          >
+            <FaPlus size={12} style={{ marginRight: '6px' }} />
+            Return an Item
+          </button>
+          <button
+            onClick={() => { setActiveTab('returned'); setActiveCategory(null); setSearchTerm(''); }}
+            style={{ ...styles.tabPill, ...(activeTab === 'returned' ? styles.tabPillActive : {}), borderBottom: activeTab === 'returned' ? `2px solid ${TEAL}` : '2px solid transparent', borderRadius: '0' }}
+          >
+            <FaClipboardList size={12} style={{ marginRight: '6px' }} />
+            Returned Assets ({returns.length})
+          </button>
+        </div>
+
+        {/* Content */}
         <div style={styles.tableCard}>
-          {activeTab === 'return' ? renderReturnForm() : renderHistory()}
+          {activeTab === 'return' ? renderReturnForm() : renderReturnedAssets()}
         </div>
       </div>
 
-      {/* ===== RETURN MODAL ===== */}
+      {/* Return Modal (same as before, unchanged) */}
       {showReturnModal && (
         <div style={styles.overlay} onClick={() => setShowReturnModal(false)}>
           <div style={{ ...styles.modal, maxWidth: '700px' }} onClick={(e) => e.stopPropagation()}>
@@ -780,17 +900,23 @@ const AssetReturns = () => {
 
               {step === 'return' && (
                 <>
-                  <button className="gl-icon-btn" style={{ ...styles.iconBtn, marginBottom: '12px' }} onClick={() => setStep('assets')}>
-                    <FaArrowLeft size={14} /> Back
-                  </button>
+                  {!quickReturnItem && (
+                    <button className="gl-icon-btn" style={{ ...styles.iconBtn, marginBottom: '12px' }} onClick={() => setStep('assets')}>
+                      <FaArrowLeft size={14} /> Back
+                    </button>
+                  )}
                   <div style={{ background: '#FAF8F3', padding: '12px', borderRadius: '8px', marginBottom: '16px' }}>
                     <p style={{ margin: 0, fontSize: '14px', color: INK }}>
-                      <strong>Returning {selectedAssets.length} item(s):</strong>
+                      <strong>Returning {quickReturnItem ? 1 : selectedAssets.length} item(s):</strong>
                     </p>
                     <ul style={{ margin: '4px 0 0', paddingLeft: '20px', fontSize: '13px', color: '#3A3626' }}>
-                      {selectedAssets.map(item => (
-                        <li key={item.id}>{item.name} (Serial: {item.serial_number || '-'})</li>
-                      ))}
+                      {quickReturnItem ? (
+                        <li>{quickReturnItem.name} (Serial: {quickReturnItem.serial_number || '-'})</li>
+                      ) : (
+                        selectedAssets.map(item => (
+                          <li key={item.id}>{item.name} (Serial: {item.serial_number || '-'})</li>
+                        ))
+                      )}
                     </ul>
                   </div>
                   <div style={styles.formGroup}>
@@ -813,13 +939,21 @@ const AssetReturns = () => {
                     <input type="checkbox" name="backup_done" checked={returnData.backup_done} onChange={handleReturnChange} id="backupCheck" style={{ accentColor: TEAL }} />
                     <label htmlFor="backupCheck" style={{ fontSize: '13px', fontWeight: 500, color: '#3A3626' }}>Backup Done?</label>
                   </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '12px 0' }}>
+                    <input type="checkbox" name="email_backup_done" checked={returnData.email_backup_done} onChange={handleReturnChange} id="emailBackupCheck" style={{ accentColor: TEAL }} />
+                    <label htmlFor="emailBackupCheck" style={{ fontSize: '13px', fontWeight: 500, color: '#3A3626' }}>Email Backup Done?</label>
+                  </div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', margin: '12px 0' }}>
+                    <input type="checkbox" name="email_closed" checked={returnData.email_closed} onChange={handleReturnChange} id="emailClosedCheck" style={{ accentColor: TEAL }} />
+                    <label htmlFor="emailClosedCheck" style={{ fontSize: '13px', fontWeight: 500, color: '#3A3626' }}>Email Closed?</label>
+                  </div>
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Remarks</label>
                     <textarea style={{ ...styles.input, resize: 'vertical', minHeight: '70px' }} name="remarks" value={returnData.remarks} onChange={handleReturnChange} rows="3" placeholder="Any notes…" />
                   </div>
                   <div style={styles.formActions}>
-                    <button style={styles.btnCancel} onClick={() => setStep('assets')}>Cancel</button>
-                    <button className="gl-btn-primary" style={styles.btnPrimary} onClick={submitReturn}>Confirm Return All</button>
+                    <button style={styles.btnCancel} onClick={() => setShowReturnModal(false)}>Cancel</button>
+                    <button className="gl-btn-primary" style={styles.btnPrimary} onClick={submitReturn}>Confirm Return</button>
                   </div>
                 </>
               )}
@@ -828,59 +962,167 @@ const AssetReturns = () => {
         </div>
       )}
 
-      {/* Print Modal */}
+      {/* Print Modal (bulk return) – UPDATED to include new fields */}
       {showPrintModal && returnedItems.length > 0 && (
         <div style={styles.overlay} onClick={() => setShowPrintModal(false)}>
           <div style={{ ...styles.modal, maxWidth: '920px' }} onClick={(e) => e.stopPropagation()}>
-            <div style={styles.modalHeader}>
-              <h2 style={styles.modalTitle}>📄 Return Voucher</h2>
+            <div className="modal-header" style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Asset Return Voucher</h2>
               <button style={styles.closeBtn} onClick={() => setShowPrintModal(false)}>×</button>
             </div>
-            <div style={styles.modalBody} ref={printRef}>
+            <div className="modal-body" ref={printRef} style={styles.modalBody}>
               <div>
-                <div style={styles.voucherHeader}>RETURN VOUCHER</div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', margin: '14px 0 8px', fontSize: '13px' }}>
-                  <div><strong>Returned By:</strong> {returnedItems[0].returned_by}</div>
-                  <div><strong>Return Date:</strong> {formatDate(returnedItems[0].return_date)}</div>
+                <div style={styles.voucherHeader}>ASSET RETURN VOUCHER</div>
+                <div style={styles.voucherDetails}>
+                  <div><strong>Department:</strong> {returnedItems[0].department || returnedItems[0].type_name || '-'}</div>
+                  <div><strong>Employee ID:</strong> {returnedItems[0].employee_id || '-'}</div>
+                  <div><strong>Station:</strong> {returnedItems[0].station || returnedItems[0].location || '-'}</div>
+                  <div><strong>Designation:</strong> {returnedItems[0].designation || '-'}</div>
+                  <div><strong>Date of Return:</strong> {formatDate(returnedItems[0].return_date)}</div>
                   <div><strong>Email:</strong> {returnedItems[0].email || '-'}</div>
-                  <div><strong>Mobile:</strong> {returnedItems[0].mobile_number || '-'}</div>
                 </div>
-                <div style={{ margin: '5px 0', fontSize: '13px' }}>
+                <div style={{ margin: '4px 0 12px', fontSize: '13px' }}>
                   <strong>Backup Done:</strong> {returnedItems[0].backup_done ? '✅ Yes' : '❌ No'}
+                  &nbsp;|&nbsp;
+                  <strong>Email Backup Done:</strong> {returnedItems[0].email_backup_done ? '✅ Yes' : '❌ No'}
+                  &nbsp;|&nbsp;
+                  <strong>Email Closed:</strong> {returnedItems[0].email_closed ? '✅ Yes' : '❌ No'}
                 </div>
-                {returnedItems[0].remarks && (
-                  <div style={{ margin: '5px 0', fontSize: '13px' }}><strong>Remarks:</strong> {returnedItems[0].remarks}</div>
-                )}
-                <div style={styles.divider} />
-                <h4 style={{ fontSize: '13px', fontWeight: 700, color: INK, margin: '12px 0 8px' }}>Returned Items</h4>
+                <h4 style={{ fontSize: '14px', fontWeight: 700, color: INK, margin: '16px 0 8px' }}>Equipment</h4>
                 <table style={styles.table}>
-                  <thead><tr><th style={styles.th}>#</th><th style={styles.th}>Item</th><th style={styles.th}>Serial No</th><th style={styles.th}>Asset</th></tr></thead>
+                  <thead>
+                    <tr>
+                      <th style={{ ...styles.th, width: '60px' }}>Sr.</th>
+                      <th style={styles.th}>Items</th>
+                      <th style={{ ...styles.th, width: '70px', textAlign: 'center' }}>Qty</th>
+                      <th style={styles.th}>Remarks</th>
+                    </tr>
+                  </thead>
                   <tbody>
                     {returnedItems.map((item, idx) => (
                       <tr key={item.id} className="gl-row">
                         <td style={styles.td}>{idx + 1}</td>
-                        <td style={{ ...styles.td, fontWeight: 600 }}>{item.name}</td>
-                        <td style={{ ...styles.td, fontFamily: "'JetBrains Mono', monospace", fontSize: '12.5px' }}>{item.serial_number || '-'}</td>
-                        <td style={styles.td}>{item.asset || '-'}</td>
+                        <td style={styles.td}>
+                          <strong>{item.name}</strong>
+                          <br />
+                          <span style={{ fontSize: '12px', color: '#6B6353' }}>
+                            Serial: {item.serial_number || '-'}
+                            {item.specifications && <><br />{item.specifications}</>}
+                          </span>
+                        </td>
+                        <td style={{ ...styles.td, textAlign: 'center' }}>{item.quantity || 1}</td>
+                        <td style={styles.td}>
+                          {item.remarks || item.notes || ''}
+                          {item.asset && <><br /><strong>Asset:</strong> {item.asset}</>}
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
-                <div style={{ marginTop: '24px', display: 'flex', justifyContent: 'space-between' }}>
-                  <div style={{ fontSize: '13px' }}>
-                    <strong>Returned By</strong><br />
-                    <span style={{ borderTop: `1px solid ${INK}`, display: 'inline-block', paddingTop: '5px', minWidth: '150px', marginTop: '18px' }}>{returnedItems[0].returned_by}</span>
+                <div style={{ marginTop: '32px' }}></div>
+                <div style={styles.voucherFooter}>
+                  <div>
+                    <strong>Received By</strong>
+                    <br />
+                    <span style={styles.signatureLine}>
+                      Syed Afaq Haider
+                    </span>
                   </div>
-                  <div style={{ fontSize: '13px' }}>
-                    <strong>Received By (System)</strong><br />
-                    <span style={{ borderTop: `1px solid ${INK}`, display: 'inline-block', paddingTop: '5px', minWidth: '150px', marginTop: '18px' }}>Inventory</span>
+                  <div>
+                    <strong>Returned By</strong>
+                    <br />
+                    <span style={styles.signatureLine}>
+                      {returnedItems[0].returned_by || '-'}
+                    </span>
                   </div>
                 </div>
               </div>
             </div>
-            <div style={{ ...styles.formActions, padding: '14px 20px' }} className="no-print">
+            <div className="form-actions no-print" style={{ ...styles.formActions, padding: '14px 20px' }}>
               <button style={styles.btnCancel} onClick={() => setShowPrintModal(false)}>Close</button>
               <button className="gl-btn-primary" style={styles.btnPrimary} onClick={handlePrint}><FaPrint size={12} /> Print</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* View Return Details Modal – UPDATED to use correct fields */}
+      {showViewModal && viewReturnItem && (
+        <div style={styles.overlay} onClick={() => setShowViewModal(false)}>
+          <div style={{ ...styles.modal, maxWidth: '920px' }} onClick={(e) => e.stopPropagation()}>
+            <div className="modal-header" style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Asset Return Voucher – {viewReturnItem.item_name}</h2>
+              <button style={styles.closeBtn} onClick={() => setShowViewModal(false)}>×</button>
+            </div>
+            <div className="modal-body" ref={viewPrintRef} style={styles.modalBody}>
+              <div>
+                <div style={styles.voucherHeader}>ASSET RETURN VOUCHER</div>
+                <div style={styles.voucherDetails}>
+                  <div><strong>Department:</strong> {viewReturnItem.department || viewReturnItem.category_name || '-'}</div>
+                  <div><strong>Employee ID:</strong> {viewReturnItem.employee_id || '-'}</div>
+                  <div><strong>Station:</strong> {viewReturnItem.station || '-'}</div>
+                  <div><strong>Designation:</strong> {viewReturnItem.designation || '-'}</div>
+                  <div><strong>Date of Return:</strong> {formatDate(viewReturnItem.return_date)}</div> {/* ✅ use return_date */}
+                  <div><strong>Email:</strong> {viewReturnItem.email || '-'}</div>
+                </div>
+                <div style={{ margin: '4px 0 12px', fontSize: '13px' }}>
+                  <strong>Backup Done:</strong> {viewReturnItem.backup_done ? '✅ Yes' : '❌ No'}
+                  &nbsp;|&nbsp;
+                  <strong>Email Backup Done:</strong> {viewReturnItem.email_backup_done ? '✅ Yes' : '❌ No'}
+                  &nbsp;|&nbsp;
+                  <strong>Email Closed:</strong> {viewReturnItem.email_closed ? '✅ Yes' : '❌ No'}
+                </div>
+                <h4 style={{ fontSize: '14px', fontWeight: 700, color: INK, margin: '16px 0 8px' }}>Equipment</h4>
+                <table style={styles.table}>
+                  <thead>
+                    <tr>
+                      <th style={{ ...styles.th, width: '60px' }}>Sr.</th>
+                      <th style={styles.th}>Items</th>
+                      <th style={{ ...styles.th, width: '70px', textAlign: 'center' }}>Qty</th>
+                      <th style={styles.th}>Remarks</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr className="gl-row">
+                      <td style={styles.td}>1</td>
+                      <td style={styles.td}>
+                        <strong>{viewReturnItem.item_name}</strong>
+                        <br />
+                        <span style={{ fontSize: '12px', color: '#6B6353' }}>
+                          Serial: {viewReturnItem.serial_number || '-'}
+                          {viewReturnItem.specifications && <><br />{viewReturnItem.specifications}</>}
+                        </span>
+                      </td>
+                      <td style={{ ...styles.td, textAlign: 'center' }}>{viewReturnItem.quantity || 1}</td>
+                      <td style={styles.td}>
+                        {viewReturnItem.remarks || ''}
+                        {viewReturnItem.asset && <><br /><strong>Asset:</strong> {viewReturnItem.asset}</>}
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+                <div style={{ marginTop: '32px' }}></div>
+                <div style={styles.voucherFooter}>
+                  <div>
+                    <strong>Received By</strong>
+                    <br />
+                    <span style={styles.signatureLine}>
+                      Syed Afaq Haider
+                    </span>
+                  </div>
+                  <div>
+                    <strong>Returned By</strong>
+                    <br />
+                    <span style={styles.signatureLine}>
+                      {viewReturnItem.returned_by || '-'}
+                    </span>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="form-actions no-print" style={{ ...styles.formActions, padding: '14px 20px' }}>
+              <button style={styles.btnCancel} onClick={() => setShowViewModal(false)}>Close</button>
+              <button className="gl-btn-primary" style={styles.btnPrimary} onClick={handleViewPrint}><FaPrint size={12} /> Print</button>
             </div>
           </div>
         </div>
@@ -889,7 +1131,7 @@ const AssetReturns = () => {
   );
 };
 
-// ---------- Styles (matching AssetAssignment) ----------
+// ---------- Styles ----------
 const styles = {
   page: {
     minHeight: '100%',
@@ -1342,11 +1584,34 @@ const styles = {
   voucherHeader: {
     textAlign: 'center',
     fontFamily: "'Space Grotesk', sans-serif",
-    fontSize: '18px',
+    fontSize: '20px',
     fontWeight: 700,
     color: INK,
     borderBottom: `2px solid ${INK}`,
     paddingBottom: '10px',
+    marginBottom: '14px',
+  },
+  voucherDetails: {
+    display: 'grid',
+    gridTemplateColumns: '1fr 1fr',
+    gap: '4px 20px',
+    fontSize: '13px',
+    marginBottom: '14px',
+    padding: '0 4px',
+  },
+  voucherFooter: {
+    display: 'flex',
+    justifyContent: 'space-between',
+    marginTop: '20px',
+    paddingTop: '10px',
+    borderTop: `1px solid ${INK}`,
+  },
+  signatureLine: {
+    display: 'inline-block',
+    borderTop: `1px solid ${INK}`,
+    paddingTop: '5px',
+    minWidth: '150px',
+    marginTop: '6px',
   },
   iconBtn: {
     width: '28px',
@@ -1360,6 +1625,11 @@ const styles = {
     justifyContent: 'center',
     cursor: 'pointer',
   },
+  actionRow: {
+    display: 'flex',
+    gap: '4px',
+    justifyContent: 'flex-end',
+  },
 };
 
 const sheet = `
@@ -1372,6 +1642,8 @@ const sheet = `
 .gl-btn-primary { transition: opacity 0.15s ease; }
 .gl-btn-primary:hover { opacity: 0.9; }
 .gl-icon-btn { transition: all 0.12s ease; }
+.gl-icon-view:hover { background: #EAF1F4 !important; color: #1F6F78 !important; }
+.gl-icon-print:hover { background: #FBF3E3 !important; color: #C08A1E !important; }
 .gl-checkbox-row:hover { background: #FAF8F3; }
 input[type=text]::placeholder, input[type=email]::placeholder, textarea::placeholder { color: #B9B3A4; }
 input:focus, select:focus, textarea:focus { border-color: #1F6F78 !important; box-shadow: 0 0 0 3px rgba(31,111,120,0.12); outline: none; }
