@@ -307,7 +307,7 @@ app.get('/api/inventory/search', (req, res) => {
 });
 
 // ============================================
-// CONDEMNED ITEMS (NEW)
+// CONDEMNED ITEMS
 // ============================================
 app.get('/api/inventory/condemned', (req, res) => {
     const query = `
@@ -515,7 +515,7 @@ app.post('/api/inventory/return', (req, res) => {
   const { 
     item_id, email, backup_done, remarks, returned_by, mobile_number, return_date,
     email_backup_done, email_closed,
-    employee_id, designation, station, department, issued_by, date_of_issuance   // ✅ new
+    employee_id, designation, station, department, issued_by, date_of_issuance
   } = req.body;
 
   if (!item_id) {
@@ -604,6 +604,143 @@ app.get('/api/returns', (req, res) => {
         }
         console.log(`✅ Found ${results.length} returns`);
         res.json(results);
+    });
+});
+
+// ============================================
+// DEPARTMENTS CRUD
+// ============================================
+
+// GET all departments
+app.get('/api/departments', (req, res) => {
+    db.query('SELECT * FROM departments ORDER BY name', (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results);
+    });
+});
+
+// POST new department
+app.post('/api/departments', (req, res) => {
+    const { name, description } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    db.query(
+        'INSERT INTO departments (name, description) VALUES (?, ?)',
+        [name, description || null],
+        (err, result) => {
+            if (err) {
+                if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Department already exists' });
+                return res.status(500).json({ error: err.message });
+            }
+            res.status(201).json({ id: result.insertId, name, description });
+        }
+    );
+});
+
+// PUT update department
+app.put('/api/departments/:id', (req, res) => {
+    const { id } = req.params;
+    const { name, description } = req.body;
+    if (!name) return res.status(400).json({ error: 'Name is required' });
+    db.query(
+        'UPDATE departments SET name = ?, description = ? WHERE id = ?',
+        [name, description || null, id],
+        (err, result) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (result.affectedRows === 0) return res.status(404).json({ error: 'Department not found' });
+            res.json({ message: 'Department updated' });
+        }
+    );
+});
+
+// DELETE department
+app.delete('/api/departments/:id', (req, res) => {
+    const { id } = req.params;
+    db.query('DELETE FROM departments WHERE id = ?', [id], (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Department not found' });
+        res.json({ message: 'Department deleted' });
+    });
+});
+
+// ============================================
+// EMPLOYEES CRUD
+// ============================================
+
+// GET all employees (with department name)
+app.get('/api/employees', (req, res) => {
+    const query = `
+        SELECT e.*, d.name as department_name 
+        FROM employees e
+        LEFT JOIN departments d ON e.department_id = d.id
+        ORDER BY e.name
+    `;
+    db.query(query, (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        res.json(results);
+    });
+});
+
+// GET single employee
+app.get('/api/employees/:id', (req, res) => {
+    const { id } = req.params;
+    const query = `
+        SELECT e.*, d.name as department_name 
+        FROM employees e
+        LEFT JOIN departments d ON e.department_id = d.id
+        WHERE e.id = ?
+    `;
+    db.query(query, [id], (err, results) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (results.length === 0) return res.status(404).json({ error: 'Employee not found' });
+        res.json(results[0]);
+    });
+});
+
+// POST new employee
+app.post('/api/employees', (req, res) => {
+    const { name, employee_id, email, contact_no, designation, department_id, address } = req.body;
+    if (!name || !employee_id) return res.status(400).json({ error: 'Name and Employee ID are required' });
+    db.query(
+        `INSERT INTO employees 
+        (name, employee_id, email, contact_no, designation, department_id, address)
+        VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        [name, employee_id, email || null, contact_no || null, designation || null, department_id || null, address || null],
+        (err, result) => {
+            if (err) {
+                if (err.code === 'ER_DUP_ENTRY') return res.status(400).json({ error: 'Employee ID already exists' });
+                return res.status(500).json({ error: err.message });
+            }
+            res.status(201).json({ id: result.insertId, message: 'Employee added' });
+        }
+    );
+});
+
+// PUT update employee
+app.put('/api/employees/:id', (req, res) => {
+    const { id } = req.params;
+    const { name, employee_id, email, contact_no, designation, department_id, address } = req.body;
+    if (!name || !employee_id) return res.status(400).json({ error: 'Name and Employee ID are required' });
+    db.query(
+        `UPDATE employees SET 
+            name = ?, employee_id = ?, email = ?, contact_no = ?, 
+            designation = ?, department_id = ?, address = ? 
+        WHERE id = ?`,
+        [name, employee_id, email || null, contact_no || null, designation || null, department_id || null, address || null, id],
+        (err, result) => {
+            if (err) return res.status(500).json({ error: err.message });
+            if (result.affectedRows === 0) return res.status(404).json({ error: 'Employee not found' });
+            res.json({ message: 'Employee updated' });
+        }
+    );
+});
+
+// DELETE employee
+app.delete('/api/employees/:id', (req, res) => {
+    const { id } = req.params;
+    db.query('DELETE FROM employees WHERE id = ?', [id], (err, result) => {
+        if (err) return res.status(500).json({ error: err.message });
+        if (result.affectedRows === 0) return res.status(404).json({ error: 'Employee not found' });
+        res.json({ message: 'Employee deleted' });
     });
 });
 
@@ -804,10 +941,10 @@ app.post('/api/inventory/import/:categoryId', upload.single('file'), async (req,
 });
 
 // --------------------------------------------
-// START SERVER
+// START SERVER – LISTEN ON ALL NETWORK INTERFACES ✅
 // --------------------------------------------
-app.listen(PORT, () => {
-    console.log(`🚀 IT Inventory Server running on http://localhost:${PORT}`);
+app.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 IT Inventory Server running on http://0.0.0.0:${PORT} (accessible via network IP)`);
     console.log(`📊 API Endpoints:`);
     console.log(`   - GET  /api/inventory/types`);
     console.log(`   - GET  /api/inventory/items`);
@@ -815,7 +952,16 @@ app.listen(PORT, () => {
     console.log(`   - GET  /api/inventory/stats`);
     console.log(`   - GET  /api/inventory/search?q=keyword`);
     console.log(`   - GET  /api/inventory/condemned`);
-    console.log(`   - GET  /api/returns`);          // ✅ fixed
+    console.log(`   - GET  /api/returns`);
+    console.log(`   - GET  /api/departments`);
+    console.log(`   - POST /api/departments`);
+    console.log(`   - PUT  /api/departments/:id`);
+    console.log(`   - DELETE /api/departments/:id`);
+    console.log(`   - GET  /api/employees`);
+    console.log(`   - GET  /api/employees/:id`);
+    console.log(`   - POST /api/employees`);
+    console.log(`   - PUT  /api/employees/:id`);
+    console.log(`   - DELETE /api/employees/:id`);
     console.log(`   - POST /api/inventory/types`);
     console.log(`   - POST /api/inventory/items`);
     console.log(`   - PUT  /api/inventory/items/:id`);

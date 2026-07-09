@@ -88,7 +88,7 @@ const ServiceMaintenance = () => {
   const columnRef = useRef(null);
   const exportRef = useRef(null);
 
-  const API_URL = 'http://localhost:5000';
+  const API_URL = 'http://10.9.109.10:5000';
 
   // ---------- Column Visibility ----------
   const getDefaultVisible = () => {

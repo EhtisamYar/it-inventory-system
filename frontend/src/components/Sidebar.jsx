@@ -2,9 +2,6 @@ import React from 'react';
 import { FaHome, FaDatabase, FaClipboardCheck, FaClipboardList, FaUndo } from 'react-icons/fa';
 
 const Sidebar = ({ types, onSelectType, selectedType }) => {
-  const allowedCategories = ['Laptops', 'Desktops'];
-  const filteredTypes = types.filter(t => allowedCategories.includes(t.name));
-
   return (
     <div className="sidebar">
       <div className="sidebar-header">
@@ -13,6 +10,7 @@ const Sidebar = ({ types, onSelectType, selectedType }) => {
       </div>
 
       <div className="sidebar-nav">
+        {/* Dashboard */}
         <div 
           className={`sidebar-item ${selectedType === null ? 'active' : ''}`}
           onClick={() => onSelectType(null)}
@@ -21,24 +19,25 @@ const Sidebar = ({ types, onSelectType, selectedType }) => {
           <span className="label">Dashboard</span>
         </div>
 
+        {/* Master Inventory */}
         <div 
           className={`sidebar-item ${selectedType === 'master' ? 'active' : ''}`}
           onClick={() => onSelectType('master')}
         >
           <span className="icon"><FaDatabase /></span>
           <span className="label">Master Inventory</span>
-          <span className="badge">{filteredTypes.length}</span>
         </div>
 
+        {/* IT Inventory */}
         <div 
           className={`sidebar-item ${selectedType === 'it-inventory' ? 'active' : ''}`}
           onClick={() => onSelectType('it-inventory')}
         >
           <span className="icon"><FaDatabase /></span>
           <span className="label">IT Inventory</span>
-          <span className="badge">📦</span>
         </div>
 
+        {/* Asset Assignment */}
         <div 
           className={`sidebar-item ${selectedType === 'assignment' ? 'active' : ''}`}
           onClick={() => onSelectType('assignment')}
@@ -47,6 +46,7 @@ const Sidebar = ({ types, onSelectType, selectedType }) => {
           <span className="label">Asset Assignment</span>
         </div>
 
+        {/* Service & Maintenance */}
         <div 
           className={`sidebar-item ${selectedType === 'service' ? 'active' : ''}`}
           onClick={() => onSelectType('service')}
@@ -64,13 +64,33 @@ const Sidebar = ({ types, onSelectType, selectedType }) => {
           <span className="label">Asset Returns</span>
         </div>
 
-        {/* Condemned items */}
+        {/* Condemned */}
         <div 
           className={`sidebar-item ${selectedType === 'condemned' ? 'active' : ''}`}
           onClick={() => onSelectType('condemned')}
         >
           <span className="icon">⛔</span>
           <span className="label">Condemned</span>
+        </div>
+
+        {/* ===== MANAGEMENT SECTION ===== */}
+        <div className="sidebar-divider" />
+        <div className="sidebar-section-title">MANAGEMENT</div>
+
+        <div 
+          className={`sidebar-item ${selectedType === 'departments' ? 'active' : ''}`}
+          onClick={() => onSelectType('departments')}
+        >
+          <span className="icon">🏢</span>
+          <span className="label">Departments</span>
+        </div>
+
+        <div 
+          className={`sidebar-item ${selectedType === 'employees' ? 'active' : ''}`}
+          onClick={() => onSelectType('employees')}
+        >
+          <span className="icon">👤</span>
+          <span className="label">Employees</span>
         </div>
       </div>
 

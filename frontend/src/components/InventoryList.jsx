@@ -102,7 +102,7 @@ const InventoryList = ({
   isMaster,
   isItInventory,
   types,
-  showCategoryTabs = false,   // ✅ NEW: enables category tabs for non‑master views (e.g., Condemned)
+  showCategoryTabs = false,
 }) => {
   const [activeTab, setActiveTab] = useState(null);
   const [conditionFilter, setConditionFilter] = useState('');
@@ -110,10 +110,11 @@ const InventoryList = ({
   const [showExportDropdown, setShowExportDropdown] = useState(false);
   const columnRef = useRef(null);
   const exportRef = useRef(null);
-  const isMasterInventory = isMaster || title === 'Master Inventory' || title === 'IT Inventory (Unassigned)';
+  
   const isTrueMaster = isMaster && !isItInventory;
+  const isMasterInventory = isMaster || title === 'Master Inventory' || title === 'IT Inventory (Unassigned)';
 
-  // ---------- Compute categories ----------
+  // ---------- Compute categories – ALWAYS for Master ----------
   const getCategoriesFromItems = () => {
     const map = {};
     items.forEach(item => {
@@ -131,7 +132,7 @@ const InventoryList = ({
   };
 
   let categories = [];
-  if (isMasterInventory || showCategoryTabs) {   // ✅ show categories for both master and condemned
+  if (isMasterInventory || showCategoryTabs) {
     if (types && types.length > 0 && isMasterInventory) {
       categories = types.map(type => ({
         id: type.id,
@@ -218,9 +219,9 @@ const InventoryList = ({
   };
   const availableColumns = getColumnKeys();
 
-  const getCategoryGroups = (allItems) => {
+  const getCategoryGroups = (itemsList) => {
     const groups = {};
-    allItems.forEach(item => {
+    itemsList.forEach(item => {
       const key = item.type_id || 'uncategorized';
       if (!groups[key]) {
         groups[key] = {
@@ -264,93 +265,19 @@ const InventoryList = ({
     dateOfIssuance: formatDate(item.date_of_issuance),
   });
 
-  const handleExportExcel = () => {
-    setShowExportDropdown(false);
-    const allItems = items;
-    const groups = getCategoryGroups(allItems);
-    const filename = title || 'Inventory';
+  // ---------- Render helpers ----------
+  const MONO_KEYS = new Set(['serial', 'assetCode', 'qty', 'price', 'employeeId']);
 
-    const buildHeaders = () => {
-      const headers = ['#'];
-      if (isMasterInventory && visibleColumns.category) headers.push('Category');
-      columnOrder.forEach(key => {
-        if (availableColumns.includes(key) && visibleColumns[key]) headers.push(COLUMN_DEFS[key].label);
-      });
-      return headers;
-    };
-
-    const buildRows = (itemsList) => itemsList.map((item, idx) => {
-      const row = { '#': idx + 1 };
-      if (isMasterInventory && visibleColumns.category) row['Category'] = item.type_name || '';
-      const valueMap = buildValueMap(item);
-      columnOrder.forEach(key => {
-        if (availableColumns.includes(key) && visibleColumns[key]) row[COLUMN_DEFS[key].label] = valueMap[key];
-      });
-      return row;
-    });
-
-    const headers = buildHeaders();
-    const wb = XLSX.utils.book_new();
-    const wsAll = XLSX.utils.json_to_sheet(buildRows(allItems), { header: headers });
-    XLSX.utils.book_append_sheet(wb, wsAll, 'All Items');
-
-    groups.forEach(group => {
-      const ws = XLSX.utils.json_to_sheet(buildRows(group.items), { header: headers });
-      let sheetName = group.name.slice(0, 31).replace(/[\\/*?:[\]]/g, '');
-      XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    });
-
-    XLSX.writeFile(wb, `${filename}.xlsx`);
-  };
-
-  const handleExportPDF = () => {
-    setShowExportDropdown(false);
-    const allItems = items;
-    const groups = getCategoryGroups(allItems);
-    const filename = title || 'Inventory';
-
-    const doc = new jsPDF('landscape', 'mm', 'a4');
-    doc.setFont('helvetica');
-
-    const headers = ['#'];
-    if (isMasterInventory && visibleColumns.category) headers.push('Category');
-    columnOrder.forEach(key => {
-      if (availableColumns.includes(key) && visibleColumns[key]) headers.push(COLUMN_DEFS[key].label);
-    });
-
-    const drawCategory = (group, startY) => {
-      doc.setFontSize(16);
-      doc.text(`${group.name} (${group.items.length} items)`, 14, startY);
-      const yAfterTitle = startY + 8;
-
-      const tableData = group.items.map((item, idx) => {
-        const row = [idx + 1];
-        if (isMasterInventory && visibleColumns.category) row.push(item.type_name || '');
-        const valueMap = buildValueMap(item);
-        columnOrder.forEach(key => {
-          if (availableColumns.includes(key) && visibleColumns[key]) row.push(valueMap[key]);
-        });
-        return row;
-      });
-
-      autoTable(doc, {
-        head: [headers],
-        body: tableData,
-        startY: yAfterTitle,
-        styles: { fontSize: 8, font: 'helvetica' },
-        headStyles: { fillColor: [31, 111, 120], font: 'helvetica' },
-        margin: { left: 10, right: 10 },
-      });
-
-      return doc.lastAutoTable.finalY + 10;
-    };
-
-    groups.forEach((group, index) => {
-      if (index > 0) doc.addPage();
-      drawCategory(group, 15);
-    });
-
-    doc.save(`${filename}.pdf`);
+  const getConditionBadge = (condition) => {
+    if (!condition) return <span style={styles.dash}>-</span>;
+    const c = CONDITION_STYLES[condition];
+    if (!c) return condition;
+    return (
+      <span style={{ ...styles.conditionBadge, background: c.bg, color: c.text }}>
+        <span style={{ ...styles.conditionDot, background: c.dot }} />
+        {condition}
+      </span>
+    );
   };
 
   const renderHeaders = () => {
@@ -367,20 +294,7 @@ const InventoryList = ({
     return headers;
   };
 
-  const getConditionBadge = (condition) => {
-    if (!condition) return <span style={styles.dash}>-</span>;
-    const c = CONDITION_STYLES[condition];
-    if (!c) return condition;
-    return (
-      <span style={{ ...styles.conditionBadge, background: c.bg, color: c.text }}>
-        <span style={{ ...styles.conditionDot, background: c.dot }} />
-        {condition}
-      </span>
-    );
-  };
-
-  const MONO_KEYS = new Set(['serial', 'assetCode', 'qty', 'price', 'employeeId']);
-
+  // Row render for normal (non‑master) view
   const renderRowCells = (item, index) => {
     const cells = [<td key={`${item.id}-num`} style={{ ...styles.td, ...styles.tdMono, color: '#B9B3A4' }}>{String(index + 1).padStart(3, '0')}</td>];
     if (isMasterInventory && visibleColumns.category) {
@@ -441,6 +355,88 @@ const InventoryList = ({
     return cells;
   };
 
+  // Table body for Master grouped view (with category filter applied)
+  const renderTableBody = (itemsList, startIndex = 0) => {
+    if (itemsList.length === 0) {
+      return (
+        <tr>
+          <td colSpan={2 + availableColumns.filter(key => visibleColumns[key]).length} style={styles.emptyCell}>
+            <div style={styles.emptyWrap}>
+              <div style={styles.emptyIcon}><FaInbox size={18} /></div>
+              <h3 style={styles.emptyTitle}>No items</h3>
+              <p style={styles.emptyText}>No items match the current filters.</p>
+            </div>
+          </td>
+        </tr>
+      );
+    }
+    return itemsList.map((item, index) => {
+      const cells = [
+        <td key={`${item.id}-num`} style={{ ...styles.td, ...styles.tdMono, color: '#B9B3A4' }}>
+          {String(startIndex + index + 1).padStart(3, '0')}
+        </td>
+      ];
+      if (isMasterInventory && visibleColumns.category) {
+        const tint = categoryTintMap[item.type_id] || '#6B6353';
+        cells.push(
+          <td key={`${item.id}-category`} style={styles.td}>
+            <span style={styles.categoryTag}>
+              <TagGlyph color={tint} />
+              {item.type_name}
+            </span>
+          </td>
+        );
+      }
+      const dash = <span style={styles.dash}>-</span>;
+      const valueMap = {
+        brand: item.brand || dash,
+        model: item.model || dash,
+        serial: item.serial_number || dash,
+        specs: item.specifications || dash,
+        qty: item.quantity,
+        price: <span style={styles.price}>{formatPKR(item.price)}</span>,
+        asset: <span style={styles.assetLink}>{item.asset || '-'}</span>,
+        assetCode: item.asset_code || dash,
+        condition: getConditionBadge(item.condition),
+        remarks: item.remarks || dash,
+        location: item.location || dash,
+        department: item.department || dash,
+        email: item.email || dash,
+        assignedTo: item.assigned_to || dash,
+        employeeId: item.employee_id || dash,
+        designation: item.designation || dash,
+        dateOfIssuance: formatDate(item.date_of_issuance),
+      };
+      columnOrder.forEach(key => {
+        if (availableColumns.includes(key) && visibleColumns[key]) {
+          cells.push(
+            <td key={`${item.id}-${key}`} style={{ ...styles.td, ...(MONO_KEYS.has(key) ? styles.tdMono : {}) }}>
+              {valueMap[key]}
+            </td>
+          );
+        }
+      });
+      cells.push(
+        <td key={`${item.id}-actions`} style={{ ...styles.td, textAlign: 'right' }}>
+          <div style={styles.actionRow}>
+            <button className="gl-icon-btn gl-icon-view" style={styles.iconBtn} onClick={() => onViewItem && onViewItem(item)} title="View">
+              <FaEye size={12} />
+            </button>
+            <button className="gl-icon-btn gl-icon-edit" style={styles.iconBtn} onClick={() => onEditItem && onEditItem(item)} title="Edit">
+              <FaEdit size={12} />
+            </button>
+            <button className="gl-icon-btn gl-icon-delete" style={styles.iconBtn} onClick={() => onDeleteItem(item.id)} title="Delete">
+              <FaTrash size={12} />
+            </button>
+          </div>
+        </td>
+      );
+      return <tr key={item.id} className="gl-row">{cells}</tr>;
+    });
+  };
+
+  // ---------- Filtering logic ----------
+  // For normal view
   const getFilteredItems = () => {
     let filtered = items;
     if (activeTab) filtered = filtered.filter(item => item.type_id === activeTab);
@@ -464,7 +460,150 @@ const InventoryList = ({
     return filtered;
   };
 
-  const filteredItems = getFilteredItems();
+  // For Master grouped view – each group is filtered by activeTab (category) and search term
+  const getMasterGroups = () => {
+    const unassigned = items.filter(item => !item.assigned_to || item.assigned_to.trim() === '');
+    const assigned = items.filter(item => item.assigned_to && item.assigned_to.trim() !== '');
+    const condemned = items.filter(item => item.condition === 'Condemned');
+    // Remove condemned from the other groups to avoid duplication
+    const unassignedFiltered = unassigned.filter(item => item.condition !== 'Condemned');
+    const assignedFiltered = assigned.filter(item => item.condition !== 'Condemned');
+    return { unassigned: unassignedFiltered, assigned: assignedFiltered, condemned };
+  };
+
+  const getFilteredGroup = (groupItems) => {
+    let filtered = groupItems;
+    // Apply category filter (activeTab)
+    if (activeTab) {
+      filtered = filtered.filter(item => item.type_id === activeTab);
+    }
+    // Apply search term
+    if (searchTerm && searchTerm.trim() !== '') {
+      const term = searchTerm.toLowerCase().trim();
+      filtered = filtered.filter(item => {
+        const fields = [
+          item.name, item.brand, item.model, item.serial_number,
+          item.asset, item.asset_code, item.assigned_to, item.employee_id,
+          item.designation, item.location, item.department, item.specifications,
+          item.type_name, item.email
+        ];
+        return fields.some(f => f && f.toLowerCase().includes(term));
+      });
+    }
+    return filtered;
+  };
+
+  // ---------- Export handlers ----------
+  const handleExportExcel = () => {
+    setShowExportDropdown(false);
+    let exportItems = isTrueMaster ? items : filteredItems;
+    if (exportItems.length === 0) {
+      alert('No items to export.');
+      return;
+    }
+    if (isTrueMaster && activeTab) {
+      exportItems = exportItems.filter(item => item.type_id === activeTab);
+    }
+    const groups = getCategoryGroups(exportItems);
+    const filename = title || 'Inventory';
+    const categoryLabel = activeTab 
+      ? `_${categories.find(c => c.id === activeTab)?.name || ''}` 
+      : '';
+
+    const buildHeaders = () => {
+      const headers = ['#'];
+      if (isMasterInventory && visibleColumns.category) headers.push('Category');
+      columnOrder.forEach(key => {
+        if (availableColumns.includes(key) && visibleColumns[key]) headers.push(COLUMN_DEFS[key].label);
+      });
+      return headers;
+    };
+
+    const buildRows = (itemsList) => itemsList.map((item, idx) => {
+      const row = { '#': idx + 1 };
+      if (isMasterInventory && visibleColumns.category) row['Category'] = item.type_name || '';
+      const valueMap = buildValueMap(item);
+      columnOrder.forEach(key => {
+        if (availableColumns.includes(key) && visibleColumns[key]) row[COLUMN_DEFS[key].label] = valueMap[key];
+      });
+      return row;
+    });
+
+    const headers = buildHeaders();
+    const wb = XLSX.utils.book_new();
+    const wsAll = XLSX.utils.json_to_sheet(buildRows(exportItems), { header: headers });
+    XLSX.utils.book_append_sheet(wb, wsAll, 'All Items');
+
+    groups.forEach(group => {
+      const ws = XLSX.utils.json_to_sheet(buildRows(group.items), { header: headers });
+      let sheetName = group.name.slice(0, 31).replace(/[\\/*?:[\]]/g, '');
+      XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    });
+
+    XLSX.writeFile(wb, `${filename}${categoryLabel}.xlsx`);
+  };
+
+  const handleExportPDF = () => {
+    setShowExportDropdown(false);
+    let exportItems = isTrueMaster ? items : filteredItems;
+    if (exportItems.length === 0) {
+      alert('No items to export.');
+      return;
+    }
+    if (isTrueMaster && activeTab) {
+      exportItems = exportItems.filter(item => item.type_id === activeTab);
+    }
+    const groups = getCategoryGroups(exportItems);
+    const filename = title || 'Inventory';
+    const categoryLabel = activeTab 
+      ? `_${categories.find(c => c.id === activeTab)?.name || ''}` 
+      : '';
+
+    const doc = new jsPDF('landscape', 'mm', 'a4');
+    doc.setFont('helvetica');
+
+    const headers = ['#'];
+    if (isMasterInventory && visibleColumns.category) headers.push('Category');
+    columnOrder.forEach(key => {
+      if (availableColumns.includes(key) && visibleColumns[key]) headers.push(COLUMN_DEFS[key].label);
+    });
+
+    const drawCategory = (group, startY) => {
+      doc.setFontSize(16);
+      doc.text(`${group.name} (${group.items.length} items)`, 14, startY);
+      const yAfterTitle = startY + 8;
+
+      const tableData = group.items.map((item, idx) => {
+        const row = [idx + 1];
+        if (isMasterInventory && visibleColumns.category) row.push(item.type_name || '');
+        const valueMap = buildValueMap(item);
+        columnOrder.forEach(key => {
+          if (availableColumns.includes(key) && visibleColumns[key]) row.push(valueMap[key]);
+        });
+        return row;
+      });
+
+      autoTable(doc, {
+        head: [headers],
+        body: tableData,
+        startY: yAfterTitle,
+        styles: { fontSize: 8, font: 'helvetica' },
+        headStyles: { fillColor: [31, 111, 120], font: 'helvetica' },
+        margin: { left: 10, right: 10 },
+      });
+
+      return doc.lastAutoTable.finalY + 10;
+    };
+
+    groups.forEach((group, index) => {
+      if (index > 0) doc.addPage();
+      drawCategory(group, 15);
+    });
+
+    doc.save(`${filename}${categoryLabel}.pdf`);
+  };
+
+  // ---------- UI helpers ----------
   const getActiveCategoryName = () => {
     if (!activeTab) return 'All items';
     const cat = categories.find(c => c.id === activeTab);
@@ -475,8 +614,18 @@ const InventoryList = ({
   const visibleDataCols = availableColumns.filter(key => visibleColumns[key]).length;
   const colSpan = 2 + visibleDataCols;
 
-  const totalValue = items.reduce((sum, item) => sum + (Number(item.price) || 0) * (Number(item.quantity) || 1), 0);
+  // -------- Normal view (IT Inventory, Condemned, or category) --------
+  const filteredItems = getFilteredItems();
 
+  // -------- Master grouped view --------
+  const groups = getMasterGroups();
+  const filteredUnassigned = getFilteredGroup(groups.unassigned);
+  const filteredAssigned = getFilteredGroup(groups.assigned);
+  const filteredCondemned = getFilteredGroup(groups.condemned);
+  const totalFiltered = filteredUnassigned.length + filteredAssigned.length + filteredCondemned.length;
+  const totalItems = items.length;
+
+  // -------- Loading state --------
   if (loading) {
     return (
       <div style={styles.page}>
@@ -489,17 +638,19 @@ const InventoryList = ({
     );
   }
 
+  // ===================== RENDER =====================
   return (
     <div style={styles.page}>
       <style>{sheet}</style>
-
       <div style={styles.frame}>
         {/* Top bar */}
         <header style={styles.topbar}>
           <div style={styles.brandBlock}>
             <div style={styles.mark}>IT</div>
             <div>
-              <h1 style={styles.brandTitle}>{activeTab ? getActiveCategoryName() : (title || 'Inventory')}</h1>
+              <h1 style={styles.brandTitle}>
+                {isTrueMaster ? 'Master Inventory' : (activeTab ? getActiveCategoryName() : (title || 'Inventory'))}
+              </h1>
               <p style={styles.brandSub}>Fauji Foods · Asset manifest</p>
             </div>
           </div>
@@ -544,8 +695,12 @@ const InventoryList = ({
               </button>
               {showExportDropdown && (
                 <div style={{ ...styles.dropdown, minWidth: '150px' }}>
-                  <button style={styles.exportOption} onClick={handleExportExcel}>Export as Excel</button>
-                  <button style={styles.exportOption} onClick={handleExportPDF}>Export as PDF</button>
+                  <button style={styles.exportOption} onClick={handleExportExcel}>
+                    Export {activeTab ? getActiveCategoryName() : 'All'} as Excel
+                  </button>
+                  <button style={styles.exportOption} onClick={handleExportPDF}>
+                    Export {activeTab ? getActiveCategoryName() : 'All'} as PDF
+                  </button>
                 </div>
               )}
             </div>
@@ -558,16 +713,16 @@ const InventoryList = ({
           </div>
         </header>
 
-        {/* Stat strip — only for master */}
+        {/* Stat strip */}
         {isMasterInventory && (
           <div style={styles.statStrip}>
             <div style={styles.statBlock}>
-              <span style={styles.statValue}>{String(items.length).padStart(3, '0')}</span>
-              <span style={styles.statLabel}>Assets tracked</span>
+              <span style={styles.statValue}>{String(totalItems).padStart(3, '0')}</span>
+              <span style={styles.statLabel}>Total assets</span>
             </div>
             <div style={styles.statDivider} />
             <div style={styles.statBlock}>
-              <span style={styles.statValue}>{formatPKR(totalValue)}</span>
+              <span style={styles.statValue}>{formatPKR(items.reduce((sum, i) => sum + (Number(i.price) || 0) * (Number(i.quantity) || 1), 0))}</span>
               <span style={styles.statLabel}>Total value</span>
             </div>
             <div style={styles.statDivider} />
@@ -577,23 +732,23 @@ const InventoryList = ({
             </div>
             <div style={styles.statDivider} />
             <div style={styles.statBlock}>
-              <span style={{ ...styles.statValue, color: filteredItems.length !== items.length ? TEAL : INK }}>
-                {filteredItems.length}
+              <span style={{ ...styles.statValue, color: totalFiltered !== totalItems ? TEAL : INK }}>
+                {totalFiltered}
               </span>
               <span style={styles.statLabel}>Matching filters</span>
             </div>
           </div>
         )}
 
-        {/* Category tabs — show for Master OR when showCategoryTabs is true (e.g., Condemned) */}
+        {/* ===== CATEGORY TABS – SHOW FOR MASTER TOO ===== */}
         {(isMasterInventory || showCategoryTabs) && categories.length > 0 && (
           <div style={styles.tabRow}>
             <button
               onClick={() => setActiveTab(null)}
               style={{ ...styles.tabPill, ...(!activeTab ? styles.tabPillActive : {}) }}
             >
-              All items
-              <span style={{ ...styles.tabCount, ...(!activeTab ? styles.tabCountActive : {}) }}>{items.length}</span>
+              All Categories
+              <span style={{ ...styles.tabCount, ...(!activeTab ? styles.tabCountActive : {}) }}>{totalItems}</span>
             </button>
             {categories.map(cat => {
               const tint = categoryTintMap[cat.id];
@@ -613,8 +768,8 @@ const InventoryList = ({
           </div>
         )}
 
-        {/* Condition filter — only for master */}
-        {isMasterInventory && (
+        {/* Condition filter – only for non‑master views */}
+        {!isTrueMaster && isMasterInventory && (
           <div style={styles.conditionRow}>
             <span style={styles.conditionLabel}>Condition</span>
             <button
@@ -636,46 +791,147 @@ const InventoryList = ({
           </div>
         )}
 
-        {/* Manifest table */}
-        <div style={styles.tableCard}>
-          <div style={styles.tableScroll}>
-            <table style={styles.table}>
-              <thead>
-                <tr>{renderHeaders()}</tr>
-              </thead>
-              <tbody>
-                {filteredItems.length === 0 ? (
-                  <tr>
-                    <td colSpan={colSpan} style={styles.emptyCell}>
-                      <div style={styles.emptyWrap}>
-                        <div style={styles.emptyIcon}><FaInbox size={18} /></div>
-                        <h3 style={styles.emptyTitle}>No equipment found</h3>
-                        <p style={styles.emptyText}>Try adjusting your search or filters.</p>
-                        {isItInventory && (
-                          <button className="gl-btn-primary" style={styles.btnPrimary} onClick={onAddItem}>
-                            <FaPlus size={12} /> Add equipment
-                          </button>
-                        )}
-                      </div>
-                    </td>
-                  </tr>
-                ) : (
-                  filteredItems.map((item, index) => (
-                    <tr key={item.id} className="gl-row">{renderRowCells(item, index)}</tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+        {/* ===== MAIN CONTENT ===== */}
+        {isTrueMaster ? (
+          // -------- MASTER VIEW: grouped sections – but skip empty ones --------
+          <div>
+            {/* Only render section if filteredUnassigned has items */}
+            {filteredUnassigned.length > 0 && (
+              <div style={{ marginBottom: '32px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '18px' }}>📦</span>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: INK }}>IT Inventory (Unassigned)</h3>
+                  <span style={{ background: '#EAF1F4', color: TEAL, padding: '2px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 600 }}>
+                    {filteredUnassigned.length}
+                  </span>
+                </div>
+                <div style={styles.tableCard}>
+                  <div style={styles.tableScroll}>
+                    <table style={styles.table}>
+                      <thead><tr>{renderHeaders()}</tr></thead>
+                      <tbody>{renderTableBody(filteredUnassigned, 0)}</tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Only render section if filteredAssigned has items */}
+            {filteredAssigned.length > 0 && (
+              <div style={{ marginBottom: '32px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '18px' }}>👤</span>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: INK }}>Assigned Items</h3>
+                  <span style={{ background: '#FBF3E3', color: AMBER, padding: '2px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 600 }}>
+                    {filteredAssigned.length}
+                  </span>
+                </div>
+                <div style={styles.tableCard}>
+                  <div style={styles.tableScroll}>
+                    <table style={styles.table}>
+                      <thead><tr>{renderHeaders()}</tr></thead>
+                      <tbody>{renderTableBody(filteredAssigned, filteredUnassigned.length)}</tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Only render section if filteredCondemned has items */}
+            {filteredCondemned.length > 0 && (
+              <div style={{ marginBottom: '32px' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                  <span style={{ fontSize: '18px' }}>⛔</span>
+                  <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 700, color: INK }}>Condemned Items</h3>
+                  <span style={{ background: '#FBEDEA', color: '#B4442B', padding: '2px 10px', borderRadius: '12px', fontSize: '12px', fontWeight: 600 }}>
+                    {filteredCondemned.length}
+                  </span>
+                </div>
+                <div style={styles.tableCard}>
+                  <div style={styles.tableScroll}>
+                    <table style={styles.table}>
+                      <thead><tr>{renderHeaders()}</tr></thead>
+                      <tbody>{renderTableBody(filteredCondemned, filteredUnassigned.length + filteredAssigned.length)}</tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* If all sections are empty, show a single "No items" message */}
+            {filteredUnassigned.length === 0 && filteredAssigned.length === 0 && filteredCondemned.length === 0 && (
+              <div style={styles.tableCard}>
+                <div style={styles.tableScroll}>
+                  <table style={styles.table}>
+                    <thead><tr>{renderHeaders()}</tr></thead>
+                    <tbody>
+                      <tr>
+                        <td colSpan={colSpan} style={styles.emptyCell}>
+                          <div style={styles.emptyWrap}>
+                            <div style={styles.emptyIcon}><FaInbox size={18} /></div>
+                            <h3 style={styles.emptyTitle}>No items match</h3>
+                            <p style={styles.emptyText}>Try adjusting your search or category filter.</p>
+                          </div>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
           </div>
-        </div>
+        ) : (
+          // -------- NORMAL VIEW (single table) --------
+          <div style={styles.tableCard}>
+            <div style={styles.tableScroll}>
+              <table style={styles.table}>
+                <thead><tr>{renderHeaders()}</tr></thead>
+                <tbody>
+                  {filteredItems.length === 0 ? (
+                    <tr>
+                      <td colSpan={colSpan} style={styles.emptyCell}>
+                        <div style={styles.emptyWrap}>
+                          <div style={styles.emptyIcon}><FaInbox size={18} /></div>
+                          <h3 style={styles.emptyTitle}>No equipment found</h3>
+                          <p style={styles.emptyText}>Try adjusting your search or filters.</p>
+                          {isItInventory && (
+                            <button className="gl-btn-primary" style={styles.btnPrimary} onClick={onAddItem}>
+                              <FaPlus size={12} /> Add equipment
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredItems.map((item, index) => (
+                      <tr key={item.id} className="gl-row">{renderRowCells(item, index)}</tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
 };
 
 // ---------- Styles ----------
-
+ 
+// ========== STYLES (unchanged) ==========
 const styles = {
+  page: {
+    minHeight: '100%',
+    background: PAPER,
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  },
+  frame: {
+    maxWidth: '1400px',
+    margin: '0 auto',
+    padding: '20px 28px 48px',
+  },
+  
   page: {
     minHeight: '100%',
     background: PAPER,
@@ -738,6 +994,7 @@ const styles = {
     display: 'flex',
     alignItems: 'center',
     gap: '8px',
+    flexWrap: 'wrap',
   },
   searchBox: {
     position: 'relative',

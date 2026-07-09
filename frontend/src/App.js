@@ -10,6 +10,8 @@ import EditItem from './components/EditItem';
 import AssetAssignment from './components/AssetAssignment';
 import ServiceMaintenance from './components/ServiceMaintenance';
 import AssetReturns from './components/AssetReturns';
+import Departments from './components/Departments';
+import Employees from './components/Employees';
 import './styles/App.css';
 
 function App() {
@@ -29,15 +31,14 @@ function App() {
   const [isAssignment, setIsAssignment] = useState(false);
   const [isItInventory, setIsItInventory] = useState(false);
 
-  const API_URL = 'http://localhost:5000';
+  const API_URL = 'http://10.9.109.10:5000';
 
-  // Refresh function to be passed to InventoryList
   const handleRefresh = () => {
     if (selectedType === 'master') fetchMasterInventory();
     else if (selectedType === 'it-inventory') fetchItInventory();
     else if (selectedType === 'assignment') fetchAssignmentItems();
-    else if (selectedType === 'condemned') fetchCondemnedItems();   // ✅ added
-    else if (selectedType && selectedType !== 'service' && selectedType !== 'returns') {
+    else if (selectedType === 'condemned') fetchCondemnedItems();
+    else if (selectedType && selectedType !== 'service' && selectedType !== 'returns' && selectedType !== 'departments' && selectedType !== 'employees') {
       fetchItemsByType(selectedType);
     }
   };
@@ -131,7 +132,6 @@ function App() {
     }
   };
 
-  // ✅ New: Fetch condemned items
   const fetchCondemnedItems = async () => {
     setLoading(true);
     setIsMasterInventory(false);
@@ -172,8 +172,22 @@ function App() {
       setIsItInventory(false);
       setInventoryItems([]);
       setFilteredItems([]);
-    } else if (typeId === 'condemned') {   // ✅ new
+    } else if (typeId === 'condemned') {
       fetchCondemnedItems();
+    } else if (typeId === 'departments') {
+      setSelectedType('departments');
+      setIsMasterInventory(false);
+      setIsAssignment(false);
+      setIsItInventory(false);
+      setInventoryItems([]);
+      setFilteredItems([]);
+    } else if (typeId === 'employees') {
+      setSelectedType('employees');
+      setIsMasterInventory(false);
+      setIsAssignment(false);
+      setIsItInventory(false);
+      setInventoryItems([]);
+      setFilteredItems([]);
     } else if (typeId === null) {
       setSelectedType(null);
       setIsMasterInventory(false);
@@ -250,8 +264,8 @@ function App() {
       if (selectedType === 'master') fetchMasterInventory();
       else if (selectedType === 'assignment') fetchAssignmentItems();
       else if (selectedType === 'it-inventory') fetchItInventory();
-      else if (selectedType === 'condemned') fetchCondemnedItems();   // ✅ added
-      else if (selectedType && selectedType !== 'master' && selectedType !== 'assignment' && selectedType !== 'it-inventory' && selectedType !== 'service' && selectedType !== 'returns') {
+      else if (selectedType === 'condemned') fetchCondemnedItems();
+      else if (selectedType && selectedType !== 'master' && selectedType !== 'assignment' && selectedType !== 'it-inventory' && selectedType !== 'service' && selectedType !== 'returns' && selectedType !== 'departments' && selectedType !== 'employees') {
         fetchItemsByType(selectedType);
       }
       alert('✅ Equipment added successfully!');
@@ -279,8 +293,8 @@ function App() {
       if (selectedType === 'master') fetchMasterInventory();
       else if (selectedType === 'assignment') fetchAssignmentItems();
       else if (selectedType === 'it-inventory') fetchItInventory();
-      else if (selectedType === 'condemned') fetchCondemnedItems();   // ✅ added
-      else if (selectedType && selectedType !== 'master' && selectedType !== 'assignment' && selectedType !== 'it-inventory' && selectedType !== 'service' && selectedType !== 'returns') {
+      else if (selectedType === 'condemned') fetchCondemnedItems();
+      else if (selectedType && selectedType !== 'master' && selectedType !== 'assignment' && selectedType !== 'it-inventory' && selectedType !== 'service' && selectedType !== 'returns' && selectedType !== 'departments' && selectedType !== 'employees') {
         fetchItemsByType(selectedType);
       }
       alert('✅ Equipment updated successfully!');
@@ -361,8 +375,8 @@ function App() {
         if (selectedType === 'master') fetchMasterInventory();
         else if (selectedType === 'assignment') fetchAssignmentItems();
         else if (selectedType === 'it-inventory') fetchItInventory();
-        else if (selectedType === 'condemned') fetchCondemnedItems();   // ✅ added
-        else if (selectedType && selectedType !== 'master' && selectedType !== 'assignment' && selectedType !== 'it-inventory' && selectedType !== 'service' && selectedType !== 'returns') {
+        else if (selectedType === 'condemned') fetchCondemnedItems();
+        else if (selectedType && selectedType !== 'master' && selectedType !== 'assignment' && selectedType !== 'it-inventory' && selectedType !== 'service' && selectedType !== 'returns' && selectedType !== 'departments' && selectedType !== 'employees') {
           fetchItemsByType(selectedType);
         }
         alert('✅ Equipment deleted successfully!');
@@ -373,28 +387,15 @@ function App() {
     }
   };
 
-  // Helper to get category name for per‑column visibility
-  const getCategoryName = () => {
-    if (selectedType === 'master') return 'master';
-    if (selectedType === 'it-inventory') return 'it-inventory';
-    if (selectedType === 'assignment') return 'assignment';
-    if (selectedType === 'condemned') return 'condemned';   // ✅ added
-    if (selectedType === 'service' || selectedType === 'returns') return selectedType;
-    const type = inventoryTypes.find(t => t.id === selectedType);
-    return type ? type.name : 'default';
-  };
-
-  // Helper to get the title for the inventory list
   const getTitle = () => {
     if (selectedType === 'master') return 'Master Inventory';
     if (selectedType === 'it-inventory') return 'IT Inventory (Unassigned)';
     if (selectedType === 'assignment') return 'Asset Assignment';
-    if (selectedType === 'condemned') return 'Condemned Items';   // ✅ added
+    if (selectedType === 'condemned') return 'Condemned Items';
     const type = inventoryTypes.find(t => t.id === selectedType);
     return type ? type.name : 'Inventory';
   };
 
-  // Helper to determine if we are in a specific category view
   const isSpecificCategory = () => {
     return selectedType && 
            selectedType !== 'master' && 
@@ -402,7 +403,9 @@ function App() {
            selectedType !== 'assignment' && 
            selectedType !== 'service' && 
            selectedType !== 'returns' &&
-           selectedType !== 'condemned';   // ✅ added
+           selectedType !== 'condemned' &&
+           selectedType !== 'departments' &&
+           selectedType !== 'employees';
   };
 
   return (
@@ -446,7 +449,12 @@ function App() {
           />
         )}
 
-        {selectedType === 'service' ? (
+        {/* ===== SINGLE CONDITIONAL CHAIN ===== */}
+        {selectedType === 'departments' ? (
+          <Departments apiUrl={API_URL} />
+        ) : selectedType === 'employees' ? (
+          <Employees apiUrl={API_URL} />
+        ) : selectedType === 'service' ? (
           <ServiceMaintenance />
         ) : selectedType === 'returns' ? (
           <AssetReturns types={inventoryTypes} />
@@ -461,7 +469,7 @@ function App() {
             onReturn={handleReturnItem}
             types={inventoryTypes}
           />
-        ) : selectedType === 'condemned' ? (   // ✅ new case
+        ) : selectedType === 'condemned' ? (
           <InventoryList 
             items={filteredItems}
             loading={loading}
@@ -479,7 +487,7 @@ function App() {
             categoryName="condemned"
             onRefresh={handleRefresh}
           />
-        ) : selectedType === 'master' || selectedType === 'it-inventory' || selectedType ? (
+        ) : (selectedType === 'master' || selectedType === 'it-inventory' || isSpecificCategory()) ? (
           <InventoryList 
             items={filteredItems}
             loading={loading}
@@ -494,7 +502,7 @@ function App() {
             isItInventory={selectedType === 'it-inventory'}
             types={inventoryTypes}
             categoryId={isSpecificCategory() ? selectedType : null}
-            categoryName={getCategoryName()}
+            categoryName={getTitle()}
             onRefresh={handleRefresh}
           />
         ) : (

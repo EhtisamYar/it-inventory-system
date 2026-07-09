@@ -8,7 +8,7 @@ import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-const API_URL = 'http://localhost:5000';
+const API_URL = 'http://10.9.109.10:5000';
 
 const formatDate = (dateString) => {
   if (!dateString) return '-';
@@ -46,7 +46,7 @@ const COLUMN_DEFS = {
   category: { label: 'Category', always: false },
   returnedBy: { label: 'Returned By', always: false },
   email: { label: 'Email', always: false },
-  backup: { label: 'Backup', always: false },  // combined email backup + email closed
+  backup: { label: 'Backup', always: false },
   remarks: { label: 'Remarks', always: false },
   returnedDate: { label: 'Returned Date', always: false },
 };
@@ -62,8 +62,9 @@ const AssetReturns = () => {
   const [assignedItems, setAssignedItems] = useState([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
-  const [activeCategory, setActiveCategory] = useState(null);
-  
+  const [activeCategory, setActiveCategory] = useState(null);        // for returned tab
+  const [activeReturnCategory, setActiveReturnCategory] = useState(null); // for return tab
+
   // ---------- Return Modal State ----------
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [step, setStep] = useState('employee');
@@ -175,16 +176,17 @@ const AssetReturns = () => {
     setShowReturnModal(true);
   };
 
+  // ----- Quick return: auto-fill from the item -----
   const openQuickReturnModal = (item) => {
     setQuickReturnItem(item);
     setStep('return');
     setFoundAssets([]);
     setSelectedAssets([]);
     setReturnData({
-      returned_by: '',
+      returned_by: item.assigned_to || '',
       return_date: new Date().toISOString().split('T')[0],
-      email: '',
-      mobile_number: '',
+      email: item.email || '',
+      mobile_number: item.mobile_number || '',
       backup_done: false,
       remarks: '',
       email_backup_done: false,
@@ -237,11 +239,19 @@ const AssetReturns = () => {
     }
   };
 
+  // ----- Proceed to return: auto-fill from first selected -----
   const proceedToReturn = () => {
     if (selectedAssets.length === 0) {
       alert('Please select at least one asset to return.');
       return;
     }
+    const first = selectedAssets[0];
+    setReturnData(prev => ({
+      ...prev,
+      returned_by: first.assigned_to || prev.returned_by,
+      email: first.email || prev.email,
+      mobile_number: first.mobile_number || prev.mobile_number,
+    }));
     setStep('return');
   };
 
@@ -253,7 +263,7 @@ const AssetReturns = () => {
     }));
   };
 
-  // ---------- SUBMIT RETURN (UPDATED) ----------
+  // ---------- SUBMIT RETURN ----------
   const submitReturn = async () => {
     let itemsToReturn = [];
     if (quickReturnItem) {
@@ -280,7 +290,6 @@ const AssetReturns = () => {
 
       const results = [];
       for (const item of itemsToReturn) {
-        // Include assignment details from the asset
         const response = await axios.post(`${API_URL}/api/inventory/return`, {
           item_id: item.id,
           ...payload,
@@ -291,13 +300,11 @@ const AssetReturns = () => {
           issued_by: item.issued_by,
           date_of_issuance: item.date_of_issuance,
         });
-        // Store returned item with all fields for the voucher
         results.push({
           ...item,
           ...returnData,
           return_date: returnData.return_date,
           returned_by: returnData.returned_by,
-          // include assignment fields for voucher
           employee_id: item.employee_id,
           designation: item.designation,
           station: item.station || item.location,
@@ -440,7 +447,7 @@ const AssetReturns = () => {
     doc.save(`${filename}.pdf`);
   };
 
-  // ---------- Filtering ----------
+  // ---------- Filtering for Returned Assets ----------
   const filteredReturns = returns.filter(r => {
     if (activeCategory && r.type_id !== activeCategory) return false;
     if (searchTerm.trim()) {
@@ -479,7 +486,8 @@ const AssetReturns = () => {
     categoryTintMap[cat.id] = getTint(idx);
   });
 
-  const getCategoryGroups = () => {
+  // ---------- Filtering for Return Tab (category tabs) ----------
+  const getReturnTabCategories = () => {
     const map = {};
     assignedItems.forEach(item => {
       const key = item.type_id || 'uncategorized';
@@ -496,10 +504,11 @@ const AssetReturns = () => {
     return Object.values(map).sort((a, b) => a.name.localeCompare(b.name));
   };
 
-  const categories = getCategoryGroups();
+  const returnTabCategories = getReturnTabCategories();
 
+  // ---------- Filter assigned items for Return tab ----------
   const filteredAssigned = assignedItems.filter(item => {
-    if (activeCategory && item.type_id !== activeCategory) return false;
+    if (activeReturnCategory && item.type_id !== activeReturnCategory) return false;
     if (searchTerm.trim()) {
       const term = searchTerm.toLowerCase();
       return (
@@ -514,6 +523,7 @@ const AssetReturns = () => {
     return true;
   });
 
+  // ---------- Close dropdown on outside click ----------
   useEffect(() => {
     const handleClickOutside = (event) => {
       if (columnRef.current && !columnRef.current.contains(event.target)) {
@@ -524,57 +534,92 @@ const AssetReturns = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // ---------- Render functions ----------
-  const renderReturnForm = () => (
-    <div style={{ flex: 1 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-        <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: INK }}>
-          {searchTerm.trim() ? `Assets matching "${searchTerm}"` : 'All Assigned Assets'}
-        </h3>
-        <span style={{ fontSize: '14px', color: '#8A8371' }}>
-          {filteredAssigned.length} assigned {filteredAssigned.length === 1 ? 'asset' : 'assets'}
-        </span>
-      </div>
+  // ====== RENDER FUNCTIONS ======
 
-      <div style={styles.tableScroll}>
-        <table style={styles.table}>
-          <thead>
-            <tr>
-              <th style={styles.th}>Item</th>
-              <th style={styles.th}>Serial No</th>
-              <th style={styles.th}>Asset</th>
-              <th style={styles.th}>Assigned To</th>
-              <th style={styles.th}>Employee ID</th>
-              <th style={styles.th}>Department</th>
-              <th style={styles.th}>Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredAssigned.length === 0 ? (
-              <tr><td colSpan="7" style={styles.td}>No assigned items found.</td></tr>
-            ) : (
-              filteredAssigned.map(item => (
-                <tr key={item.id} className="gl-row">
-                  <td style={{ ...styles.td, fontWeight: 600 }}>{item.name}</td>
-                  <td style={{ ...styles.td, fontFamily: "'JetBrains Mono', monospace", fontSize: '12.5px' }}>{item.serial_number || '-'}</td>
-                  <td style={styles.td}>{item.asset || '-'}</td>
-                  <td style={styles.td}>{item.assigned_to || '-'}</td>
-                  <td style={{ ...styles.td, fontFamily: "'JetBrains Mono', monospace", fontSize: '12.5px' }}>{item.employee_id || '-'}</td>
-                  <td style={styles.td}>{item.department || '-'}</td>
-                  <td style={styles.td}>
-                    <button className="gl-btn-primary" style={{ ...styles.btnPrimary, padding: '4px 12px', fontSize: '12px' }} onClick={() => openQuickReturnModal(item)}>
-                      <FaUndo size={12} style={{ marginRight: '4px' }} /> Return
-                    </button>
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  );
+  // Return tab – list of assigned assets with category tabs
+  const renderReturnForm = () => {
+    const totalAssigned = assignedItems.length;
 
+    return (
+      <div style={{ flex: 1 }}>
+        {/* Category tabs for Return tab */}
+        {returnTabCategories.length > 0 && (
+          <div style={styles.tabRow}>
+            <button
+              onClick={() => setActiveReturnCategory(null)}
+              style={{ ...styles.tabPill, ...(!activeReturnCategory ? styles.tabPillActive : {}) }}
+            >
+              All Items
+              <span style={{ ...styles.tabCount, ...(!activeReturnCategory ? styles.tabCountActive : {}) }}>{totalAssigned}</span>
+            </button>
+            {returnTabCategories.map(cat => {
+              const tint = getTint(returnTabCategories.indexOf(cat));
+              const isActive = activeReturnCategory === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  onClick={() => setActiveReturnCategory(isActive ? null : cat.id)}
+                  style={{ ...styles.tabPill, ...(isActive ? { ...styles.tabPillActive, background: tint, borderColor: tint } : {}) }}
+                >
+                  <TagGlyph color={isActive ? '#fff' : tint} />
+                  {cat.name}
+                  <span style={{ ...styles.tabCount, ...(isActive ? styles.tabCountActive : {}) }}>{cat.count}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+          <h3 style={{ margin: 0, fontSize: '16px', fontWeight: 600, color: INK }}>
+            {searchTerm.trim() ? `Assets matching "${searchTerm}"` : 'All Assigned Assets'}
+          </h3>
+          <span style={{ fontSize: '14px', color: '#8A8371' }}>
+            {filteredAssigned.length} assigned {filteredAssigned.length === 1 ? 'asset' : 'assets'}
+          </span>
+        </div>
+
+        <div style={styles.tableScroll}>
+          <table style={styles.table}>
+            <thead>
+              <tr>
+                <th style={styles.th}>Item</th>
+                <th style={styles.th}>Serial No</th>
+                <th style={styles.th}>Asset</th>
+                <th style={styles.th}>Assigned To</th>
+                <th style={styles.th}>Employee ID</th>
+                <th style={styles.th}>Department</th>
+                <th style={styles.th}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredAssigned.length === 0 ? (
+                <tr><td colSpan="7" style={styles.td}>No assigned items found.</td></tr>
+              ) : (
+                filteredAssigned.map(item => (
+                  <tr key={item.id} className="gl-row">
+                    <td style={{ ...styles.td, fontWeight: 600 }}>{item.name}</td>
+                    <td style={{ ...styles.td, fontFamily: "'JetBrains Mono', monospace", fontSize: '12.5px' }}>{item.serial_number || '-'}</td>
+                    <td style={styles.td}>{item.asset || '-'}</td>
+                    <td style={styles.td}>{item.assigned_to || '-'}</td>
+                    <td style={{ ...styles.td, fontFamily: "'JetBrains Mono', monospace", fontSize: '12.5px' }}>{item.employee_id || '-'}</td>
+                    <td style={styles.td}>{item.department || '-'}</td>
+                    <td style={styles.td}>
+                      <button className="gl-btn-primary" style={{ ...styles.btnPrimary, padding: '4px 12px', fontSize: '12px' }} onClick={() => openQuickReturnModal(item)}>
+                        <FaUndo size={12} style={{ marginRight: '4px' }} /> Return
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    );
+  };
+
+  // Returned Assets tab – with category tabs and export
   const renderReturnedAssets = () => {
     const order = ['item', 'serial', 'asset', 'category', 'returnedBy', 'email', 'backup', 'remarks', 'returnedDate'];
     const headers = [<th key="#" style={styles.th}>#</th>];
@@ -645,6 +690,7 @@ const AssetReturns = () => {
     );
   };
 
+  // ---------- Loading state ----------
   if (loading) {
     return (
       <div style={styles.page}>
@@ -657,6 +703,7 @@ const AssetReturns = () => {
     );
   }
 
+  // ---------- Main render ----------
   return (
     <div style={styles.page}>
       <style>{sheet}</style>
@@ -715,12 +762,22 @@ const AssetReturns = () => {
                   )}
                 </div>
 
-                <button style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={() => handleExportExcel(filteredReturns, `Item_Returns_${activeTab}`)} title="Export Excel">
-                  <FaFileExcel size={13} /> Excel
-                </button>
-                <button style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={() => handleExportPDF(filteredReturns, `Item_Returns_${activeTab}`)} title="Export PDF">
-                  <FaFilePdf size={13} /> PDF
-                </button>
+                {/* Export buttons with category-aware filenames */}
+                {(() => {
+                  const activeCatObj = activeCategory ? returnCategories.find(c => c.id === activeCategory) : null;
+                  const catName = activeCatObj ? activeCatObj.name : '';
+                  const exportFilename = `Item_Returns_${activeTab}${catName ? '_' + catName : ''}`;
+                  return (
+                    <>
+                      <button style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={() => handleExportExcel(filteredReturns, exportFilename)} title="Export Excel">
+                        <FaFileExcel size={13} /> {activeCategory ? `Export ${catName}` : 'Excel'}
+                      </button>
+                      <button style={{ ...styles.iconOnlyBtn, width: 'auto', padding: '0 12px' }} onClick={() => handleExportPDF(filteredReturns, exportFilename)} title="Export PDF">
+                        <FaFilePdf size={13} /> {activeCategory ? `Export ${catName}` : 'PDF'}
+                      </button>
+                    </>
+                  );
+                })()}
               </>
             )}
           </div>
@@ -749,45 +806,17 @@ const AssetReturns = () => {
           </div>
         </div>
 
-        {/* Category tabs for Returned Assets */}
-        {activeTab === 'returned' && returnCategories.length > 0 && (
-          <div style={styles.tabRow}>
-            <button
-              onClick={() => setActiveCategory(null)}
-              style={{ ...styles.tabPill, ...(!activeCategory ? styles.tabPillActive : {}) }}
-            >
-              All Categories
-              <span style={{ ...styles.tabCount, ...(!activeCategory ? styles.tabCountActive : {}) }}>{returns.length}</span>
-            </button>
-            {returnCategories.map(cat => {
-              const tint = categoryTintMap[cat.id];
-              const isActive = activeCategory === cat.id;
-              return (
-                <button
-                  key={cat.id}
-                  onClick={() => setActiveCategory(isActive ? null : cat.id)}
-                  style={{ ...styles.tabPill, ...(isActive ? { ...styles.tabPillActive, background: tint, borderColor: tint } : {}) }}
-                >
-                  <TagGlyph color={isActive ? '#fff' : tint} />
-                  {cat.name}
-                  <span style={{ ...styles.tabCount, ...(isActive ? styles.tabCountActive : {}) }}>{cat.count}</span>
-                </button>
-              );
-            })}
-          </div>
-        )}
-
-        {/* Tabs */}
+        {/* Tabs (Return / Returned) */}
         <div style={{ ...styles.tabRow, borderBottom: `2px solid ${INK}`, marginBottom: '20px' }}>
           <button
-            onClick={() => { setActiveTab('return'); setActiveCategory(null); setSearchTerm(''); }}
+            onClick={() => { setActiveTab('return'); setActiveCategory(null); setActiveReturnCategory(null); setSearchTerm(''); }}
             style={{ ...styles.tabPill, ...(activeTab === 'return' ? styles.tabPillActive : {}), borderBottom: activeTab === 'return' ? `2px solid ${TEAL}` : '2px solid transparent', borderRadius: '0' }}
           >
             <FaPlus size={12} style={{ marginRight: '6px' }} />
             Return an Item
           </button>
           <button
-            onClick={() => { setActiveTab('returned'); setActiveCategory(null); setSearchTerm(''); }}
+            onClick={() => { setActiveTab('returned'); setActiveCategory(null); setActiveReturnCategory(null); setSearchTerm(''); }}
             style={{ ...styles.tabPill, ...(activeTab === 'returned' ? styles.tabPillActive : {}), borderBottom: activeTab === 'returned' ? `2px solid ${TEAL}` : '2px solid transparent', borderRadius: '0' }}
           >
             <FaClipboardList size={12} style={{ marginRight: '6px' }} />
@@ -801,7 +830,7 @@ const AssetReturns = () => {
         </div>
       </div>
 
-      {/* Return Modal (same as before, unchanged) */}
+      {/* ====== Return Modal ====== */}
       {showReturnModal && (
         <div style={styles.overlay} onClick={() => setShowReturnModal(false)}>
           <div style={{ ...styles.modal, maxWidth: '700px' }} onClick={(e) => e.stopPropagation()}>
@@ -962,7 +991,7 @@ const AssetReturns = () => {
         </div>
       )}
 
-      {/* Print Modal (bulk return) – UPDATED to include new fields */}
+      {/* Print Modal (bulk return) */}
       {showPrintModal && returnedItems.length > 0 && (
         <div style={styles.overlay} onClick={() => setShowPrintModal(false)}>
           <div style={{ ...styles.modal, maxWidth: '920px' }} onClick={(e) => e.stopPropagation()}>
@@ -1046,7 +1075,7 @@ const AssetReturns = () => {
         </div>
       )}
 
-      {/* View Return Details Modal – UPDATED to use correct fields */}
+      {/* View Return Details Modal */}
       {showViewModal && viewReturnItem && (
         <div style={styles.overlay} onClick={() => setShowViewModal(false)}>
           <div style={{ ...styles.modal, maxWidth: '920px' }} onClick={(e) => e.stopPropagation()}>
@@ -1062,7 +1091,7 @@ const AssetReturns = () => {
                   <div><strong>Employee ID:</strong> {viewReturnItem.employee_id || '-'}</div>
                   <div><strong>Station:</strong> {viewReturnItem.station || '-'}</div>
                   <div><strong>Designation:</strong> {viewReturnItem.designation || '-'}</div>
-                  <div><strong>Date of Return:</strong> {formatDate(viewReturnItem.return_date)}</div> {/* ✅ use return_date */}
+                  <div><strong>Date of Return:</strong> {formatDate(viewReturnItem.return_date)}</div>
                   <div><strong>Email:</strong> {viewReturnItem.email || '-'}</div>
                 </div>
                 <div style={{ margin: '4px 0 12px', fontSize: '13px' }}>
@@ -1334,7 +1363,7 @@ const styles = {
     gap: '8px',
     overflowX: 'auto',
     paddingBottom: '4px',
-    marginBottom: '18px',
+    marginBottom: '10px',
   },
   tabPill: {
     display: 'flex',

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import axios from 'axios';
 import { FaFileExcel, FaUpload, FaTimes } from 'react-icons/fa';
 
-const API_URL = 'http://localhost:5000';
+const API_URL = 'http://10.9.109.10:5000';
 
 const ImportExcel = ({ categoryId, categories = [], onClose, onSuccess }) => {
   const [file, setFile] = useState(null);

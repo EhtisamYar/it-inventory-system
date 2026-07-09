@@ -12,7 +12,7 @@ const Dashboard = ({ types, onSelectType, onAddType, onDeleteCategory }) => {
   const [allItems, setAllItems] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  const API_URL = 'http://localhost:5000';
+  const API_URL = 'http://10.9.109.10:5000';
 
   useEffect(() => {
     fetchAllItems();
