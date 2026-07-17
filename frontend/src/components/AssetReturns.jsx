@@ -65,6 +65,12 @@ const AssetReturns = () => {
   const [activeCategory, setActiveCategory] = useState(null);        // for returned tab
   const [activeReturnCategory, setActiveReturnCategory] = useState(null); // for return tab
 
+  // ---------- Employee data ----------
+  const [employees, setEmployees] = useState([]);
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
+  const [viewEmployee, setViewEmployee] = useState(null);
+  const [showEmployeeModal, setShowEmployeeModal] = useState(false);
+
   // ---------- Return Modal State ----------
   const [showReturnModal, setShowReturnModal] = useState(false);
   const [step, setStep] = useState('employee');
@@ -127,6 +133,15 @@ const AssetReturns = () => {
 
   const availableColumns = Object.keys(COLUMN_DEFS);
 
+  // ---------- Fetch Employees ----------
+  useEffect(() => {
+    setLoadingEmployees(true);
+    axios.get(`${API_URL}/api/employees`)
+      .then(res => setEmployees(res.data))
+      .catch(err => console.error('Failed to fetch employees', err))
+      .finally(() => setLoadingEmployees(false));
+  }, []);
+
   // ---------- Fetch Data ----------
   useEffect(() => {
     fetchAssignedItems();
@@ -176,7 +191,7 @@ const AssetReturns = () => {
     setShowReturnModal(true);
   };
 
-  // ----- Quick return: auto-fill from the item -----
+  // ----- Quick return: auto-fill from the item (and optionally from employee) -----
   const openQuickReturnModal = (item) => {
     setQuickReturnItem(item);
     setStep('return');
@@ -261,6 +276,21 @@ const AssetReturns = () => {
       ...prev,
       [name]: type === 'checkbox' ? checked : value,
     }));
+  };
+
+  // --- Employee selection handler for return form ---
+  const handleEmployeeSelect = (empId) => {
+    const emp = employees.find(e => e.id === parseInt(empId));
+    if (!emp) return;
+    setReturnData(prev => ({
+      ...prev,
+      returned_by: emp.name,
+      email: emp.email || prev.email,
+      mobile_number: emp.contact_no || prev.mobile_number,
+      // Optionally also set department and designation if you want to store them in the return record.
+      // They are not in returnData, but you could add them.
+    }));
+    // Optionally you could also set department and designation if you add them to returnData state.
   };
 
   // ---------- SUBMIT RETURN ----------
@@ -534,6 +564,17 @@ const AssetReturns = () => {
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
+  // ---------- Employee View ----------
+  const openEmployeeModal = (employeeId) => {
+    const emp = employees.find(e => e.employee_id === employeeId || e.id === employeeId);
+    if (emp) {
+      setViewEmployee(emp);
+      setShowEmployeeModal(true);
+    } else {
+      alert('Employee not found');
+    }
+  };
+
   // ====== RENDER FUNCTIONS ======
 
   // Return tab – list of assigned assets with category tabs
@@ -678,6 +719,12 @@ const AssetReturns = () => {
                       }} title="Print Voucher">
                         <FaPrint size={12} />
                       </button>
+                      {/* 👇 View Employee button (if employee_id exists) */}
+                      {r.employee_id && (
+                        <button className="gl-icon-btn gl-icon-employee" style={{ ...styles.iconBtn, color: '#9C9585' }} onClick={() => openEmployeeModal(r.employee_id)} title="View Employee">
+                          <FaUser size={12} />
+                        </button>
+                      )}
                     </div>
                   </td>
                 );
@@ -948,6 +995,25 @@ const AssetReturns = () => {
                       )}
                     </ul>
                   </div>
+
+                  {/* 👇 Employee dropdown for auto‑fill */}
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Select Employee (auto‑fill)</label>
+                    <select
+                      style={styles.input}
+                      onChange={(e) => handleEmployeeSelect(e.target.value)}
+                      value=""
+                    >
+                      <option value="">-- Select employee --</option>
+                      {employees.map(emp => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.name} ({emp.employee_id}){emp.designation ? ` · ${emp.designation}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {loadingEmployees && <span style={{ fontSize: '12px', color: '#9C9585' }}>Loading employees…</span>}
+                  </div>
+
                   <div style={styles.formGroup}>
                     <label style={styles.label}>Returned By *</label>
                     <input style={styles.input} type="text" name="returned_by" value={returnData.returned_by} onChange={handleReturnChange} placeholder="e.g., Zaheer Abbas" />
@@ -1156,9 +1222,39 @@ const AssetReturns = () => {
           </div>
         </div>
       )}
+
+      {/* Employee Details Modal */}
+      {showEmployeeModal && viewEmployee && (
+        <div style={styles.overlay} onClick={() => setShowEmployeeModal(false)}>
+          <div style={{ ...styles.modal, maxWidth: '600px' }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Employee Details</h2>
+              <button style={styles.closeBtn} onClick={() => setShowEmployeeModal(false)}>×</button>
+            </div>
+            <div style={styles.modalBody}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 20px' }}>
+                <div><strong>Name:</strong> {viewEmployee.name}</div>
+                <div><strong>Employee ID:</strong> {viewEmployee.employee_id}</div>
+                <div><strong>Department:</strong> {viewEmployee.department_name || '-'}</div>
+                <div><strong>Designation:</strong> {viewEmployee.designation || '-'}</div>
+                <div><strong>Email:</strong> {viewEmployee.email || '-'}</div>
+                <div><strong>Contact:</strong> {viewEmployee.contact_no || '-'}</div>
+                <div><strong>Job Type:</strong> {viewEmployee.job_type || '-'}</div>
+                <div><strong>CNIC:</strong> {viewEmployee.cnic_number || '-'}</div>
+                <div><strong>Grade:</strong> {viewEmployee.grade || '-'}</div>
+                <div style={{ gridColumn: '1 / -1' }}><strong>Address:</strong> {viewEmployee.address || '-'}</div>
+              </div>
+              <div style={{ marginTop: '16px', textAlign: 'right' }}>
+                <button style={styles.btnCancel} onClick={() => setShowEmployeeModal(false)}>Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
 
 // ---------- Styles ----------
 const styles = {

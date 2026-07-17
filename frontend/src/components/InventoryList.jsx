@@ -41,6 +41,7 @@ const COLUMN_DEFS = {
   employeeId: { label: 'Employee ID', always: false },
   designation: { label: 'Designation', always: false },
   dateOfIssuance: { label: 'Date of Issuance', always: false },
+  ipAddress: { label: 'IP Address', always: false },   // ✅ NEW
 };
 
 const CATEGORY_COLUMN_PRESETS = {
@@ -106,6 +107,7 @@ const InventoryList = ({
 }) => {
   const [activeTab, setActiveTab] = useState(null);
   const [conditionFilter, setConditionFilter] = useState('');
+  const [assetFilter, setAssetFilter] = useState('');
   const [showColumnDropdown, setShowColumnDropdown] = useState(false);
   const [showExportDropdown, setShowExportDropdown] = useState(false);
   const columnRef = useRef(null);
@@ -211,7 +213,7 @@ const InventoryList = ({
     const base = [
       'brand', 'model', 'serial', 'specs', 'qty', 'price',
       'asset', 'assetCode', 'condition', 'remarks', 'location',
-      'department', 'email'
+      'department', 'email', 'ipAddress'   // ✅ added ipAddress
     ];
     if (isMasterInventory) base.unshift('category');
     if (isTrueMaster) base.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
@@ -239,7 +241,7 @@ const InventoryList = ({
   const columnOrder = [
     'brand', 'model', 'serial', 'specs', 'qty', 'price',
     'asset', 'assetCode', 'condition', 'remarks', 'location',
-    'department', 'email'
+    'department', 'email', 'ipAddress'   // ✅ added ipAddress
   ];
   if (isTrueMaster) {
     columnOrder.push('assignedTo', 'employeeId', 'designation', 'dateOfIssuance');
@@ -263,6 +265,7 @@ const InventoryList = ({
     employeeId: item.employee_id || '',
     designation: item.designation || '',
     dateOfIssuance: formatDate(item.date_of_issuance),
+    ipAddress: item.ip_address || '',    // ✅ added
   });
 
   // ---------- Render helpers ----------
@@ -327,6 +330,7 @@ const InventoryList = ({
       employeeId: item.employee_id || dash,
       designation: item.designation || dash,
       dateOfIssuance: formatDate(item.date_of_issuance),
+      ipAddress: item.ip_address || dash,   // ✅ added
     };
     columnOrder.forEach(key => {
       if (availableColumns.includes(key) && visibleColumns[key]) {
@@ -355,7 +359,7 @@ const InventoryList = ({
     return cells;
   };
 
-  // Table body for Master grouped view (with category filter applied)
+  // Table body for Master grouped view
   const renderTableBody = (itemsList, startIndex = 0) => {
     if (itemsList.length === 0) {
       return (
@@ -406,6 +410,7 @@ const InventoryList = ({
         employeeId: item.employee_id || dash,
         designation: item.designation || dash,
         dateOfIssuance: formatDate(item.date_of_issuance),
+        ipAddress: item.ip_address || dash,   // ✅ added
       };
       columnOrder.forEach(key => {
         if (availableColumns.includes(key) && visibleColumns[key]) {
@@ -439,12 +444,18 @@ const InventoryList = ({
   // For normal view
   const getFilteredItems = () => {
     let filtered = items;
-    if (activeTab) filtered = filtered.filter(item => item.type_id === activeTab);
-    if (conditionFilter) {
-      filtered = conditionFilter === 'empty'
-        ? filtered.filter(item => !item.condition || item.condition === '')
-        : filtered.filter(item => item.condition === conditionFilter);
+    // Only apply category and condition filters for Master Inventory
+    if (isMaster) {
+      if (activeTab) filtered = filtered.filter(item => item.type_id === activeTab);
+      if (conditionFilter) {
+        filtered = conditionFilter === 'empty'
+          ? filtered.filter(item => !item.condition || item.condition === '')
+          : filtered.filter(item => item.condition === conditionFilter);
+      }
     }
+    // Asset filter (works in IT Inventory too)
+    if (assetFilter) filtered = filtered.filter(item => item.asset === assetFilter);
+    // Search filter
     if (searchTerm && searchTerm.trim() !== '') {
       const term = searchTerm.toLowerCase().trim();
       filtered = filtered.filter(item => {
@@ -460,7 +471,7 @@ const InventoryList = ({
     return filtered;
   };
 
-  // For Master grouped view – each group is filtered by activeTab (category) and search term
+  // For Master grouped view – each group is filtered by activeTab, assetFilter, and search term
   const getMasterGroups = () => {
     const unassigned = items.filter(item => !item.assigned_to || item.assigned_to.trim() === '');
     const assigned = items.filter(item => item.assigned_to && item.assigned_to.trim() !== '');
@@ -476,6 +487,10 @@ const InventoryList = ({
     // Apply category filter (activeTab)
     if (activeTab) {
       filtered = filtered.filter(item => item.type_id === activeTab);
+    }
+    // Apply asset filter
+    if (assetFilter) {
+      filtered = filtered.filter(item => item.asset === assetFilter);
     }
     // Apply search term
     if (searchTerm && searchTerm.trim() !== '') {
@@ -504,11 +519,15 @@ const InventoryList = ({
     if (isTrueMaster && activeTab) {
       exportItems = exportItems.filter(item => item.type_id === activeTab);
     }
+    if (isTrueMaster && assetFilter) {
+      exportItems = exportItems.filter(item => item.asset === assetFilter);
+    }
     const groups = getCategoryGroups(exportItems);
     const filename = title || 'Inventory';
     const categoryLabel = activeTab 
       ? `_${categories.find(c => c.id === activeTab)?.name || ''}` 
       : '';
+    const assetLabel = assetFilter ? `_${assetFilter}` : '';
 
     const buildHeaders = () => {
       const headers = ['#'];
@@ -540,7 +559,7 @@ const InventoryList = ({
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
     });
 
-    XLSX.writeFile(wb, `${filename}${categoryLabel}.xlsx`);
+    XLSX.writeFile(wb, `${filename}${categoryLabel}${assetLabel}.xlsx`);
   };
 
   const handleExportPDF = () => {
@@ -553,11 +572,15 @@ const InventoryList = ({
     if (isTrueMaster && activeTab) {
       exportItems = exportItems.filter(item => item.type_id === activeTab);
     }
+    if (isTrueMaster && assetFilter) {
+      exportItems = exportItems.filter(item => item.asset === assetFilter);
+    }
     const groups = getCategoryGroups(exportItems);
     const filename = title || 'Inventory';
     const categoryLabel = activeTab 
       ? `_${categories.find(c => c.id === activeTab)?.name || ''}` 
       : '';
+    const assetLabel = assetFilter ? `_${assetFilter}` : '';
 
     const doc = new jsPDF('landscape', 'mm', 'a4');
     doc.setFont('helvetica');
@@ -600,7 +623,7 @@ const InventoryList = ({
       drawCategory(group, 15);
     });
 
-    doc.save(`${filename}${categoryLabel}.pdf`);
+    doc.save(`${filename}${categoryLabel}${assetLabel}.pdf`);
   };
 
   // ---------- UI helpers ----------
@@ -666,6 +689,27 @@ const InventoryList = ({
                 style={styles.searchInput}
               />
             </div>
+
+            {/* Asset Filter dropdown */}
+            <select
+              value={assetFilter}
+              onChange={(e) => setAssetFilter(e.target.value)}
+              style={{
+                height: '36px',
+                padding: '0 12px',
+                borderRadius: '8px',
+                border: '1px solid #DEDACD',
+                fontSize: '13px',
+                background: '#fff',
+                color: INK,
+                outline: 'none',
+              }}
+            >
+              <option value="">All Assets</option>
+              <option value="Cereals">Cereals</option>
+              <option value="Pasta">Pasta</option>
+              <option value="Other">Other</option>
+            </select>
 
             <div style={{ position: 'relative' }} ref={columnRef}>
               <button style={styles.iconOnlyBtn} onClick={() => setShowColumnDropdown(!showColumnDropdown)} title="Columns">
@@ -740,8 +784,8 @@ const InventoryList = ({
           </div>
         )}
 
-        {/* ===== CATEGORY TABS – SHOW FOR MASTER TOO ===== */}
-        {(isMasterInventory || showCategoryTabs) && categories.length > 0 && (
+        {/* ===== CATEGORY TABS – only for Master ===== */}
+        {isMaster && categories.length > 0 && (
           <div style={styles.tabRow}>
             <button
               onClick={() => setActiveTab(null)}
@@ -768,8 +812,8 @@ const InventoryList = ({
           </div>
         )}
 
-        {/* Condition filter – only for non‑master views */}
-        {!isTrueMaster && isMasterInventory && (
+        {/* Condition filter – only for Master */}
+        {isMaster && !isTrueMaster && (
           <div style={styles.conditionRow}>
             <span style={styles.conditionLabel}>Condition</span>
             <button
@@ -795,7 +839,6 @@ const InventoryList = ({
         {isTrueMaster ? (
           // -------- MASTER VIEW: grouped sections – but skip empty ones --------
           <div>
-            {/* Only render section if filteredUnassigned has items */}
             {filteredUnassigned.length > 0 && (
               <div style={{ marginBottom: '32px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
@@ -816,7 +859,6 @@ const InventoryList = ({
               </div>
             )}
 
-            {/* Only render section if filteredAssigned has items */}
             {filteredAssigned.length > 0 && (
               <div style={{ marginBottom: '32px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
@@ -837,7 +879,6 @@ const InventoryList = ({
               </div>
             )}
 
-            {/* Only render section if filteredCondemned has items */}
             {filteredCondemned.length > 0 && (
               <div style={{ marginBottom: '32px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
@@ -858,7 +899,6 @@ const InventoryList = ({
               </div>
             )}
 
-            {/* If all sections are empty, show a single "No items" message */}
             {filteredUnassigned.length === 0 && filteredAssigned.length === 0 && filteredCondemned.length === 0 && (
               <div style={styles.tableCard}>
                 <div style={styles.tableScroll}>
@@ -917,10 +957,20 @@ const InventoryList = ({
   );
 };
 
-// ---------- Styles ----------
- 
-// ========== STYLES (unchanged) ==========
+
+// ---------- Styles (unchanged) ----------
 const styles = {
+  page: {
+    minHeight: '100%',
+    background: PAPER,
+    fontFamily: "'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif",
+  },
+  frame: {
+    maxWidth: '1400px',
+    margin: '0 auto',
+    padding: '20px 28px 48px',
+  },
+ 
   page: {
     minHeight: '100%',
     background: PAPER,

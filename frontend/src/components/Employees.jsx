@@ -20,6 +20,9 @@ const Employees = ({ apiUrl }) => {
     designation: '',
     department_id: '',
     address: '',
+    job_type: '',       // ✅ new
+    cnic_number: '',    // ✅ new
+    grade: '',          // ✅ new
   });
 
   const fetchData = async () => {
@@ -47,7 +50,11 @@ const Employees = ({ apiUrl }) => {
       fetchData();
       setShowModal(false);
       setEditing(null);
-      setFormData({ name: '', employee_id: '', email: '', contact_no: '', designation: '', department_id: '', address: '' });
+      setFormData({ 
+        name: '', employee_id: '', email: '', contact_no: '', 
+        designation: '', department_id: '', address: '',
+        job_type: '', cnic_number: '', grade: '' 
+      });
     } catch (err) {
       alert(err.response?.data?.error || 'Error saving');
     }
@@ -72,10 +79,17 @@ const Employees = ({ apiUrl }) => {
         designation: emp.designation || '',
         department_id: emp.department_id || '',
         address: emp.address || '',
+        job_type: emp.job_type || '',
+        cnic_number: emp.cnic_number || '',
+        grade: emp.grade || '',
       });
     } else {
       setEditing(null);
-      setFormData({ name: '', employee_id: '', email: '', contact_no: '', designation: '', department_id: '', address: '' });
+      setFormData({ 
+        name: '', employee_id: '', email: '', contact_no: '', 
+        designation: '', department_id: '', address: '',
+        job_type: '', cnic_number: '', grade: '' 
+      });
     }
     setShowModal(true);
   };
@@ -134,14 +148,17 @@ const Employees = ({ apiUrl }) => {
                   <th style={styles.th}>Designation</th>
                   <th style={styles.th}>Email</th>
                   <th style={styles.th}>Contact</th>
-                  <th style={styles.th}>Address</th>   {/* ✅ New column */}
+                  <th style={styles.th}>Job Type</th>     {/* new */}
+                  <th style={styles.th}>CNIC</th>         {/* new */}
+                  <th style={styles.th}>Grade</th>        {/* new */}
+                  <th style={styles.th}>Address</th>
                   <th style={{ ...styles.th, textAlign: 'right' }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
                 {employees.length === 0 ? (
                   <tr>
-                    <td colSpan="9" style={styles.emptyCell}>
+                    <td colSpan="12" style={styles.emptyCell}>
                       <div style={styles.emptyWrap}>
                         <div style={styles.emptyIcon}><FaInbox size={18} /></div>
                         <h3 style={styles.emptyTitle}>No employees</h3>
@@ -159,7 +176,10 @@ const Employees = ({ apiUrl }) => {
                       <td style={styles.td}>{emp.designation || '-'}</td>
                       <td style={styles.td}>{emp.email || '-'}</td>
                       <td style={{ ...styles.td, ...styles.tdMono }}>{emp.contact_no || '-'}</td>
-                      <td style={styles.td}>{emp.address || '-'}</td>   {/* ✅ Display address */}
+                      <td style={styles.td}>{emp.job_type || '-'}</td>       {/* new */}
+                      <td style={styles.td}>{emp.cnic_number || '-'}</td>   {/* new */}
+                      <td style={styles.td}>{emp.grade || '-'}</td>         {/* new */}
+                      <td style={styles.td}>{emp.address || '-'}</td>
                       <td style={{ ...styles.td, textAlign: 'right' }}>
                         <div style={styles.actionRow}>
                           <button className="gl-icon-btn gl-icon-edit" style={styles.iconBtn} onClick={() => openModal(emp)} title="Edit">
@@ -179,7 +199,7 @@ const Employees = ({ apiUrl }) => {
         </div>
       </div>
 
-      {/* Modal (unchanged – it already has Address field) */}
+      {/* Modal */}
       {showModal && (
         <div style={styles.overlay} onClick={() => setShowModal(false)}>
           <div style={styles.modal} onClick={e => e.stopPropagation()}>
@@ -221,10 +241,28 @@ const Employees = ({ apiUrl }) => {
                   </select>
                 </div>
               </div>
+
+              {/* New fields row */}
+              <div style={styles.formRow}>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>Job Type</label>
+                  <input style={styles.input} type="text" name="job_type" value={formData.job_type} onChange={e => setFormData({...formData, job_type: e.target.value})} placeholder="e.g., Permanent, Contract" />
+                </div>
+                <div style={styles.formGroup}>
+                  <label style={styles.label}>CNIC Number</label>
+                  <input style={styles.input} type="text" name="cnic_number" value={formData.cnic_number} onChange={e => setFormData({...formData, cnic_number: e.target.value})} placeholder="e.g., 12345-1234567-1" />
+                </div>
+              </div>
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Grade</label>
+                <input style={styles.input} type="text" name="grade" value={formData.grade} onChange={e => setFormData({...formData, grade: e.target.value})} placeholder="e.g., Grade 1, Officer, Manager" />
+              </div>
+
               <div style={styles.formGroup}>
                 <label style={styles.label}>Address</label>
                 <textarea style={{ ...styles.input, resize: 'vertical', minHeight: '70px' }} value={formData.address} onChange={e => setFormData({...formData, address: e.target.value})} rows="3" />
               </div>
+
               <div style={styles.formActions}>
                 <button type="button" style={styles.btnCancel} onClick={() => setShowModal(false)}>Cancel</button>
                 <button type="submit" className="gl-btn-primary" style={styles.btnPrimary}>Save</button>

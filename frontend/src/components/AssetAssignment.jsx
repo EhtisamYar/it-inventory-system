@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
+import axios from 'axios';
 import {
-  FaClipboardCheck, FaSearch, FaPlus, FaPrint, FaEye, FaEdit, FaTrash, FaUndo, FaColumns, FaFileExport
+  FaClipboardCheck, FaSearch, FaPlus, FaPrint, FaEye, FaEdit, FaTrash, FaUndo, FaColumns, FaFileExport, FaUser
 } from 'react-icons/fa';
 import * as XLSX from 'xlsx';
 import jsPDF from 'jspdf';
@@ -81,12 +82,14 @@ const AssetAssignment = ({
   onEdit,
   onView,
   onReturn,
-  types = []
+  types = [],
+  apiUrl   // 👈 NEW: base URL for API calls
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [showAssignModal, setShowAssignModal] = useState(false);
   const [showVoucherModal, setShowVoucherModal] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
+  const [showEmployeeModal, setShowEmployeeModal] = useState(false);
   const [selectedItem, setSelectedItem] = useState(null);
   const [voucherItem, setVoucherItem] = useState(null);
   const [modalConditionFilter, setModalConditionFilter] = useState('');
@@ -98,6 +101,12 @@ const AssetAssignment = ({
   const exportRef = useRef(null);
   const [activeTab, setActiveTab] = useState(null);
 
+  // --- Employee data ---
+  const [employees, setEmployees] = useState([]);
+  const [loadingEmployees, setLoadingEmployees] = useState(false);
+  const [viewEmployee, setViewEmployee] = useState(null);
+
+  // --- Voucher state ---
   const [voucherData, setVoucherData] = useState({
     issued_by: '',
     received_by: '',
@@ -109,6 +118,7 @@ const AssetAssignment = ({
     email: ''
   });
 
+  // --- Edit state ---
   const [editData, setEditData] = useState({
     assigned_to: '',
     location: '',
@@ -120,6 +130,17 @@ const AssetAssignment = ({
     date_of_issuance: '',
     email: ''
   });
+
+  // --- Fetch employees ---
+  useEffect(() => {
+    if (apiUrl) {
+      setLoadingEmployees(true);
+      axios.get(`${apiUrl}/api/employees`)
+        .then(res => setEmployees(res.data))
+        .catch(err => console.error('Failed to fetch employees', err))
+        .finally(() => setLoadingEmployees(false));
+    }
+  }, [apiUrl]);
 
   // ---------- Column Visibility ----------
   const getDefaultVisible = () => {
@@ -371,6 +392,31 @@ const AssetAssignment = ({
     }));
   };
 
+  // --- Employee selection handler ---
+  const handleEmployeeSelect = (empId, target = 'voucher') => {
+    const emp = employees.find(e => e.id === parseInt(empId));
+    if (!emp) return;
+    if (target === 'voucher') {
+      setVoucherData(prev => ({
+        ...prev,
+        received_by: emp.name,
+        employee_id: emp.employee_id,
+        designation: emp.designation || '',
+        department: emp.department_name || prev.department,
+        email: emp.email || prev.email
+      }));
+    } else if (target === 'edit') {
+      setEditData(prev => ({
+        ...prev,
+        assigned_to: emp.name,
+        employee_id: emp.employee_id,
+        designation: emp.designation || '',
+        department: emp.department_name || prev.department,
+        email: emp.email || prev.email
+      }));
+    }
+  };
+
   const handleVoucherChange = (e) => {
     setVoucherData({ ...voucherData, [e.target.name]: e.target.value });
   };
@@ -473,6 +519,17 @@ const AssetAssignment = ({
   const openVoucher = (item) => {
     setVoucherItem(item);
     setShowVoucherModal(true);
+  };
+
+  // ---- Employee View ----
+  const openEmployeeModal = (employeeId) => {
+    const emp = employees.find(e => e.employee_id === employeeId || e.id === employeeId);
+    if (emp) {
+      setViewEmployee(emp);
+      setShowEmployeeModal(true);
+    } else {
+      alert('Employee not found');
+    }
   };
 
   const handlePrint = () => {
@@ -698,7 +755,13 @@ const AssetAssignment = ({
                         {visibleColumns.assignedTo && <td style={{ ...styles.td, fontWeight: 600 }}>{item.assigned_to}</td>}
                         {visibleColumns.department && <td style={styles.td}>{item.department || <span style={styles.dash}>-</span>}</td>}
                         {visibleColumns.location && <td style={styles.td}>{item.location || <span style={styles.dash}>-</span>}</td>}
-                        {visibleColumns.employeeId && <td style={{ ...styles.td, ...styles.tdMono }}>{item.employee_id || <span style={styles.dash}>-</span>}</td>}
+                        {visibleColumns.employeeId && (
+                          <td style={{ ...styles.td, ...styles.tdMono, cursor: 'pointer' }} onClick={() => {
+                            if (item.employee_id) openEmployeeModal(item.employee_id);
+                          }}>
+                            {item.employee_id || <span style={styles.dash}>-</span>}
+                          </td>
+                        )}
                         {visibleColumns.designation && <td style={styles.td}>{item.designation || <span style={styles.dash}>-</span>}</td>}
                         {visibleColumns.dateOfIssuance && <td style={styles.td}>{formatDate(item.date_of_issuance)}</td>}
                         {visibleColumns.email && <td style={styles.td}>{item.email || <span style={styles.dash}>-</span>}</td>}
@@ -719,6 +782,11 @@ const AssetAssignment = ({
                             <button className="gl-icon-btn gl-icon-voucher" style={styles.iconBtn} onClick={() => openVoucher(item)} title="Voucher">
                               <FaPrint size={12} />
                             </button>
+                            {item.employee_id && (
+                              <button className="gl-icon-btn gl-icon-employee" style={{ ...styles.iconBtn, color: '#9C9585' }} onClick={() => openEmployeeModal(item.employee_id)} title="View Employee">
+                                <FaUser size={12} />
+                              </button>
+                            )}
                           </div>
                         </td>
                       </tr>
@@ -823,6 +891,25 @@ const AssetAssignment = ({
                     <p style={{ fontSize: '12.5px', color: '#6B6353', margin: '2px 0 0' }}>Specifications: {selectedItem.specifications || '-'}</p>
                   </div>
                   <div style={styles.divider} />
+
+                  {/* Employee dropdown */}
+                  <div style={styles.formGroup}>
+                    <label style={styles.label}>Select Employee (auto‑fill)</label>
+                    <select
+                      style={styles.input}
+                      onChange={(e) => handleEmployeeSelect(e.target.value, 'voucher')}
+                      value=""
+                    >
+                      <option value="">-- Select employee --</option>
+                      {employees.map(emp => (
+                        <option key={emp.id} value={emp.id}>
+                          {emp.name} ({emp.employee_id}){emp.designation ? ` · ${emp.designation}` : ''}
+                        </option>
+                      ))}
+                    </select>
+                    {loadingEmployees && <span style={{ fontSize: '12px', color: '#9C9585' }}>Loading employees…</span>}
+                  </div>
+
                   <div style={styles.formRow}>
                     <div style={styles.formGroup}>
                       <label style={styles.label}>Issued by *</label>
@@ -882,6 +969,26 @@ const AssetAssignment = ({
             </div>
             <div style={styles.modalBody}>
               <p style={{ fontSize: '13px', color: '#6B6353', marginTop: 0 }}><strong style={{ color: INK }}>Asset:</strong> {selectedItem.name}</p>
+              <div style={styles.divider} />
+
+              {/* Employee dropdown */}
+              <div style={styles.formGroup}>
+                <label style={styles.label}>Select Employee (auto‑fill)</label>
+                <select
+                  style={styles.input}
+                  onChange={(e) => handleEmployeeSelect(e.target.value, 'edit')}
+                  value=""
+                >
+                  <option value="">-- Select employee --</option>
+                  {employees.map(emp => (
+                    <option key={emp.id} value={emp.id}>
+                      {emp.name} ({emp.employee_id}){emp.designation ? ` · ${emp.designation}` : ''}
+                    </option>
+                  ))}
+                </select>
+                {loadingEmployees && <span style={{ fontSize: '12px', color: '#9C9585' }}>Loading employees…</span>}
+              </div>
+
               <div style={styles.formGroup}>
                 <label style={styles.label}>Assigned to *</label>
                 <input style={styles.input} type="text" name="assigned_to" value={editData.assigned_to} onChange={handleEditChange} />
@@ -986,9 +1093,39 @@ const AssetAssignment = ({
           </div>
         </div>
       )}
+
+      {/* Employee Details Modal */}
+      {showEmployeeModal && viewEmployee && (
+        <div style={styles.overlay} onClick={() => setShowEmployeeModal(false)}>
+          <div style={{ ...styles.modal, maxWidth: '600px' }} onClick={(e) => e.stopPropagation()}>
+            <div style={styles.modalHeader}>
+              <h2 style={styles.modalTitle}>Employee Details</h2>
+              <button style={styles.closeBtn} onClick={() => setShowEmployeeModal(false)}>×</button>
+            </div>
+            <div style={styles.modalBody}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px 20px' }}>
+                <div><strong>Name:</strong> {viewEmployee.name}</div>
+                <div><strong>Employee ID:</strong> {viewEmployee.employee_id}</div>
+                <div><strong>Department:</strong> {viewEmployee.department_name || '-'}</div>
+                <div><strong>Designation:</strong> {viewEmployee.designation || '-'}</div>
+                <div><strong>Email:</strong> {viewEmployee.email || '-'}</div>
+                <div><strong>Contact:</strong> {viewEmployee.contact_no || '-'}</div>
+                <div><strong>Job Type:</strong> {viewEmployee.job_type || '-'}</div>
+                <div><strong>CNIC:</strong> {viewEmployee.cnic_number || '-'}</div>
+                <div><strong>Grade:</strong> {viewEmployee.grade || '-'}</div>
+                <div style={{ gridColumn: '1 / -1' }}><strong>Address:</strong> {viewEmployee.address || '-'}</div>
+              </div>
+              <div style={{ marginTop: '16px', textAlign: 'right' }}>
+                <button style={styles.btnCancel} onClick={() => setShowEmployeeModal(false)}>Close</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };
+
 
 const styles = {
   page: {

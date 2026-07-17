@@ -256,9 +256,12 @@ function App() {
     }
   };
 
-  const handleAddItem = async (itemData) => {
+  // ===== UPDATED: handleAddItem now accepts FormData =====
+  const handleAddItem = async (formData) => {
     try {
-      await axios.post(`${API_URL}/api/inventory/items`, itemData);
+      await axios.post(`${API_URL}/api/inventory/items`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
       setRefresh(!refresh);
       setShowAddItem(false);
       if (selectedType === 'master') fetchMasterInventory();
@@ -285,9 +288,12 @@ function App() {
     setShowEditItem(true);
   };
 
-  const handleUpdateItem = async (id, updatedData) => {
+  // ===== UPDATED: handleUpdateItem now accepts FormData =====
+  const handleUpdateItem = async (id, formData) => {
     try {
-      await axios.put(`${API_URL}/api/inventory/items/${id}`, updatedData);
+      await axios.put(`${API_URL}/api/inventory/items/${id}`, formData, {
+        headers: { 'Content-Type': 'multipart/form-data' }
+      });
       setRefresh(!refresh);
       setShowEditItem(false);
       if (selectedType === 'master') fetchMasterInventory();
@@ -468,6 +474,7 @@ function App() {
             onView={handleViewItem}
             onReturn={handleReturnItem}
             types={inventoryTypes}
+            apiUrl={API_URL}
           />
         ) : selectedType === 'condemned' ? (
           <InventoryList 

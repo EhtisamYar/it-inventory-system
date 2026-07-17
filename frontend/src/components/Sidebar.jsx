@@ -72,7 +72,7 @@ const Sidebar = ({ types, onSelectType, selectedType }) => {
           <span className="icon">⛔</span>
           <span className="label">Condemned</span>
         </div>
-
+        
         {/* ===== MANAGEMENT SECTION ===== */}
         <div className="sidebar-divider" />
         <div className="sidebar-section-title">MANAGEMENT</div>

@@ -19,9 +19,12 @@ const AddItem = ({ onClose, onAdd, types, defaultCategoryId = null }) => {
     warranty_until: '',
     assigned_to: '',
     location: '',
+    department: '',
     email: '',
     notes: ''
   });
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
@@ -31,6 +34,21 @@ const AddItem = ({ onClose, onAdd, types, defaultCategoryId = null }) => {
     });
   };
 
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setImageFile(null);
+      setImagePreview(null);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     if (!formData.type_id || !formData.name.trim()) {
@@ -38,12 +56,24 @@ const AddItem = ({ onClose, onAdd, types, defaultCategoryId = null }) => {
       return;
     }
     setLoading(true);
-    await onAdd(formData);
+
+    // Build FormData for multipart upload
+    const data = new FormData();
+    Object.keys(formData).forEach(key => {
+      if (formData[key] !== null && formData[key] !== undefined) {
+        data.append(key, formData[key]);
+      }
+    });
+    if (imageFile) {
+      data.append('image', imageFile);
+    }
+
+    await onAdd(data);
     setLoading(false);
   };
 
-  // Determine if category dropdown should be disabled
   const isCategoryDisabled = !!defaultCategoryId;
+  const assetOptions = ['', 'Cereals', 'Pasta', 'Other'];
 
   return (
     <div className="modal-overlay">
@@ -169,14 +199,17 @@ const AddItem = ({ onClose, onAdd, types, defaultCategoryId = null }) => {
 
           <div className="form-row">
             <div className="form-group">
-              <label>Asset</label>
-              <input
-                type="text"
+              <label>Asset *</label>
+              <select
                 name="asset"
                 value={formData.asset}
                 onChange={handleChange}
-                placeholder="e.g., FFL-IT-001"
-              />
+                required
+              >
+                {assetOptions.map(opt => (
+                  <option key={opt} value={opt}>{opt || 'None'}</option>
+                ))}
+              </select>
             </div>
             <div className="form-group">
               <label>Asset Code</label>
@@ -251,6 +284,19 @@ const AddItem = ({ onClose, onAdd, types, defaultCategoryId = null }) => {
               />
             </div>
             <div className="form-group">
+              <label>Department</label>
+              <input
+                type="text"
+                name="department"
+                value={formData.department}
+                onChange={handleChange}
+                placeholder="e.g., IT, Finance"
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
               <label>Assigned To</label>
               <input
                 type="text"
@@ -260,17 +306,38 @@ const AddItem = ({ onClose, onAdd, types, defaultCategoryId = null }) => {
                 placeholder="Employee name (if assigned)"
               />
             </div>
+            <div className="form-group">
+              <label>Email</label>
+              <input
+                type="email"
+                name="email"
+                value={formData.email}
+                onChange={handleChange}
+                placeholder="email@domain.com"
+              />
+            </div>
           </div>
 
+          {/* Image upload field */}
           <div className="form-group">
-            <label>Email</label>
+            <label>Item Image</label>
             <input
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={handleChange}
-              placeholder="email@domain.com"
+              type="file"
+              accept="image/*"
+              onChange={handleImageChange}
             />
+            {imagePreview && (
+              <div style={{ marginTop: '8px' }}>
+                <img src={imagePreview} alt="Preview" style={{ maxWidth: '200px', maxHeight: '200px', objectFit: 'contain', borderRadius: '4px' }} />
+                <button
+                  type="button"
+                  style={{ marginLeft: '8px', background: 'none', border: 'none', color: '#B4442B', cursor: 'pointer' }}
+                  onClick={() => { setImageFile(null); setImagePreview(null); }}
+                >
+                  ✕ Remove
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="form-group">

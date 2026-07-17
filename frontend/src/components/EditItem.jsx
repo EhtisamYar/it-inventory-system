@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FaTimes } from 'react-icons/fa';
 
 const EditItem = ({ item, onClose, onUpdate, types }) => {
@@ -19,13 +19,55 @@ const EditItem = ({ item, onClose, onUpdate, types }) => {
     warranty_until: item.warranty_until || '',
     assigned_to: item.assigned_to || '',
     location: item.location || '',
-    email: item.email || '',    // ✅ Added email
+    department: item.department || '',
+    email: item.email || '',
     notes: item.notes || ''
   });
+  const [imageFile, setImageFile] = useState(null);
+  const [imagePreview, setImagePreview] = useState(null);
   const [loading, setLoading] = useState(false);
+
+  // Load existing image if available
+  useEffect(() => {
+    if (item && item.id) {
+      // Optionally fetch image preview via API – but we can just show the image using the image endpoint
+      // We'll create a URL for the existing image using the API endpoint
+      const imageUrl = `${process.env.REACT_APP_API_URL || 'http://10.9.109.10:5000'}/api/inventory/items/${item.id}/image`;
+      // Test if image exists (we'll try to load it, if fails, ignore)
+      fetch(imageUrl)
+        .then(res => {
+          if (res.ok) {
+            setImagePreview(imageUrl);
+          }
+        })
+        .catch(() => {});
+    }
+  }, [item]);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      setImageFile(file);
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setImagePreview(reader.result);
+      };
+      reader.readAsDataURL(file);
+    } else {
+      setImageFile(null);
+      setImagePreview(null);
+    }
+  };
+
+  const handleRemoveImage = () => {
+    setImageFile(null);
+    setImagePreview(null);
+    // Also set image to null in formData so backend removes it
+    setFormData(prev => ({ ...prev, image: null }));
   };
 
   const handleSubmit = async (e) => {
@@ -35,9 +77,27 @@ const EditItem = ({ item, onClose, onUpdate, types }) => {
       return;
     }
     setLoading(true);
-    await onUpdate(formData);
+
+    // Build FormData
+    const data = new FormData();
+    Object.keys(formData).forEach(key => {
+      if (formData[key] !== null && formData[key] !== undefined) {
+        data.append(key, formData[key]);
+      }
+    });
+    // If imageFile is set, append it (will replace existing image)
+    if (imageFile) {
+      data.append('image', imageFile);
+    } else if (imagePreview === null && formData.image === null) {
+      // If user removed image, set image=null to delete
+      data.append('image', 'null');
+    }
+
+    await onUpdate(data);
     setLoading(false);
   };
+
+  const assetOptions = ['', 'Cereals', 'Pasta', 'Other'];
 
   return (
     <div className="modal-overlay" onClick={onClose}>
@@ -156,14 +216,17 @@ const EditItem = ({ item, onClose, onUpdate, types }) => {
 
           <div className="form-row">
             <div className="form-group">
-              <label>Asset</label>
-              <input
-                type="text"
+              <label>Asset *</label>
+              <select
                 name="asset"
                 value={formData.asset}
                 onChange={handleChange}
-                placeholder="e.g., FFL-IT-001"
-              />
+                required
+              >
+                {assetOptions.map(opt => (
+                  <option key={opt} value={opt}>{opt || 'None'}</option>
+                ))}
+              </select>
             </div>
             <div className="form-group">
               <label>Asset Code</label>
@@ -238,6 +301,19 @@ const EditItem = ({ item, onClose, onUpdate, types }) => {
               />
             </div>
             <div className="form-group">
+              <label>Department</label>
+              <input
+                type="text"
+                name="department"
+                value={formData.department}
+                onChange={handleChange}
+                placeholder="e.g., IT, Finance"
+              />
+            </div>
+          </div>
+
+          <div className="form-row">
+            <div className="form-group">
               <label>Assigned To</label>
               <input
                 type="text"
@@ -247,17 +323,38 @@ const EditItem = ({ item, onClose, onUpdate, types }) => {
                 placeholder="Employee name"
               />
             </div>
+            <div className="form-group">
+              <label>Email</label>
+              <input
+                type="email"
+                name="email"
+                value={formData.email}
+                onChange={handleChange}
+                placeholder="email@domain.com"
+              />
+            </div>
           </div>
 
+          {/* Image upload field */}
           <div className="form-group">
-            <label>Email</label>
+            <label>Item Image</label>
             <input
-              type="email"
-              name="email"
-              value={formData.email}
-              onChange={handleChange}
-              placeholder="email@domain.com"
+              type="file"
+              accept="image/*"
+              onChange={handleImageChange}
             />
+            {imagePreview && (
+              <div style={{ marginTop: '8px' }}>
+                <img src={imagePreview} alt="Preview" style={{ maxWidth: '200px', maxHeight: '200px', objectFit: 'contain', borderRadius: '4px' }} />
+                <button
+                  type="button"
+                  style={{ marginLeft: '8px', background: 'none', border: 'none', color: '#B4442B', cursor: 'pointer' }}
+                  onClick={handleRemoveImage}
+                >
+                  ✕ Remove Image
+                </button>
+              </div>
+            )}
           </div>
 
           <div className="form-group">
